@@ -1,0 +1,10 @@
+.env
+*.env
+
+outputs/
+*.pdf
+*.pptx
+*.json
+
+memory/
+venv/

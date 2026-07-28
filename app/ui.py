@@ -8,6 +8,10 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 import streamlit as st
+from dotenv import load_dotenv
+
+# Load local environment variables from .env
+load_dotenv()
 
 from app.styles import inject_theme
 

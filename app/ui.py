@@ -27,7 +27,13 @@ inject_theme()
 def check_password() -> bool:
     """Returns True if the user had the correct password, False otherwise."""
     # Look for password in secrets (Streamlit Cloud) or env vars
-    target_password = st.secrets.get("ACCESS_PASSWORD") or os.getenv("ACCESS_PASSWORD")
+    try:
+        target_password = st.secrets.get("ACCESS_PASSWORD")
+    except Exception:
+        target_password = None
+        
+    if not target_password:
+        target_password = os.getenv("ACCESS_PASSWORD")
     
     # If no password is configured, bypass the gate (default to open)
     if not target_password:

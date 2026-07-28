@@ -4,7 +4,7 @@ fpdf
 pdfplumber
 python-dotenv
 openai>=2.45.0,<3
-login-with-chatgpt>=0.1.2
+login-with-chatgpt==0.1.2
 httpx
 ddgs>=9.0.0
 mcp>=1.0.0

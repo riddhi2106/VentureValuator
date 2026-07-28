@@ -1,26 +1,9 @@
 import os
-from contextlib import contextmanager
-from contextvars import ContextVar
-from typing import Iterator
+import threading
 
 from dotenv import load_dotenv
 
 load_dotenv()
-
-_session_tokens: ContextVar[object | None] = ContextVar(
-    "chatgpt_session_tokens",
-    default=None,
-)
-
-
-@contextmanager
-def use_session_tokens(tokens: object | None) -> Iterator[None]:
-    """Make tokens available to LLM calls in the current pipeline context."""
-    context_token = _session_tokens.set(tokens)
-    try:
-        yield
-    finally:
-        _session_tokens.reset(context_token)
 
 
 def _is_test_mode() -> bool:
@@ -189,7 +172,7 @@ def _make_client_from_session_token(model: str):
     Build a client from tokens captured by the Streamlit script thread and
     passed into the current pipeline context.
     """
-    tokens = _session_tokens.get()
+    tokens = getattr(threading.current_thread(), "chatgpt_tokens", None)
     if tokens is None:
         raise ValueError("No session token set")
 

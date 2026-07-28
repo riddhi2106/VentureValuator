@@ -1,29 +1,25 @@
 from typing import Dict, Any
-from tools.llm_client import call_gemini
+from tools.llm_client import call_llm
+from tools.web_search import search_for_startup
 import json
-import re
+import os
+
 
 class MarketAgent:
     """
-    MarketResearchAgent takes structured extraction output and produces:
-    - Market size (TAM/SAM/SOM)
-    - Growth estimates
-    - Competitor landscape
-    - Opportunities & risks
-    - Industry-specific benchmarks
-    - Regional factors
-    - Summary insights
+    Market research with optional web-grounded citations.
     """
 
-    def __init__(self, use_web_search: bool = False):
+    def __init__(self, use_web_search: bool = True):
         self.use_web_search = use_web_search
 
-    def _build_prompt(self, extracted: Dict[str, Any], web_results: str = ""):
+    def _build_prompt(self, extracted: Dict[str, Any], web_results: str = "", mcp_comps: str = ""):
         return f"""
 You are a world-class startup market analyst.
 
-Your task: Produce a STRUCTURED, FACT-BASED market research summary 
-for the startup described below.
+Produce a STRUCTURED, FACT-BASED market research summary for the startup below.
+When web research is provided, PRIORITIZE those findings for TAM, competitors, and trends.
+Cite web sources in the "sources" array using their title and URL.
 
 ========================
 STARTUP INFO (JSON)
@@ -31,15 +27,18 @@ STARTUP INFO (JSON)
 {json.dumps(extracted, indent=2)}
 
 ========================
-WEB RESEARCH (optional)
+WEB RESEARCH
 ========================
-{web_results}
+{web_results or "No web research available — use industry knowledge but flag uncertainty."}
+
+========================
+LIVE FINANCIAL COMPS (via MCP)
+========================
+{mcp_comps or "No live comps data retrieved."}
 
 ========================
 REQUIRED OUTPUT (JSON FORMAT ONLY)
 ========================
-Respond ONLY with valid JSON containing the keys below:
-
 {{
   "market_category": "",
   "tam": "",
@@ -63,68 +62,85 @@ Respond ONLY with valid JSON containing the keys below:
   }},
   "opportunities": [],
   "risks": [],
-  "summary_insights": ""
+  "summary_insights": "",
+  "sources": [
+    {{"title": "", "url": "", "snippet": ""}}
+  ]
 }}
 
-========================
-GUIDELINES
-========================
-- Pull factual market patterns from your training. 
-- If numbers vary, give typical industry ranges.
-- Do NOT hallucinate precise financial numbers unless the industry has known estimates.
-- Keep the JSON valid.
+GUIDELINES:
+- Include at least 2 entries in "sources" when web research is available.
+- Do NOT invent precise market numbers without basis — use ranges if uncertain.
+- Keep JSON valid. Return ONLY the JSON object.
 """
 
     def _clean_json(self, text: str) -> str:
-        """Remove markdown code fences (```json ... ```)."""
         clean = text.replace("```json", "").replace("```", "").strip()
+        start = clean.find("{")
+        end = clean.rfind("}") + 1
+        if start != -1 and end > start:
+            return clean[start:end]
         return clean
 
     def run(self, extracted: Dict[str, Any], search_tool=None) -> Dict[str, Any]:
-        """
-        Main entrypoint.
-        If use_web_search=True, will call search_tool(query) to enrich results.
-        """
-
         web_results = ""
+        web_sources = []
+        mcp_comps = ""
 
-        if self.use_web_search and search_tool:
-            industry = extracted.get("industry") or extracted.get("Industry") or ""
-            location = extracted.get("location") or extracted.get("Location") or ""
+        use_search = self.use_web_search and os.getenv("DISABLE_WEB_SEARCH", "false").lower() not in ("true", "1")
 
-            queries = [
-                f"{industry} market size {location}",
-                f"{industry} competitors India",
-                f"{industry} growth rate report",
-                f"{industry} trends 2025"
-            ]
+        if use_search:
+            try:
+                if search_tool:
+                    web_results, web_sources = search_tool(extracted)
+                else:
+                    web_results, web_sources = search_for_startup(extracted)
+            except Exception as e:
+                web_results = f"Web search failed: {e}"
 
-            combined_results = []
-            for q in queries:
-                try:
-                    search_output = search_tool(q)
-                    combined_results.append(f"Query: {q}\nResult:\n{search_output}\n")
-                except Exception as e:
-                    combined_results.append(f"Query: {q}\nError: {e}")
+        # Fetch live comps via MCP
+        try:
+            from tools.mcp_client import get_public_comps
+            # We'll do a quick check to see if we can find a related public tech company ticker
+            # For hackathon demo purposes, we will default to "SNOW" (Snowflake) if it's SaaS, or "AAPL" if hardware.
+            # Ideally this would be dynamically extracted.
+            biz = str(extracted.get("business_model", "")).lower()
+            ticker = "AAPL"
+            if "saas" in biz or "software" in biz:
+                ticker = "SNOW"
+            if "ai" in str(extracted.get("solution", "")).lower():
+                ticker = "NVDA"
+                
+            mcp_comps = get_public_comps(ticker)
+        except Exception as e:
+            mcp_comps = f"MCP comps failed: {e}"
 
-            web_results = "\n".join(combined_results)
-
-        # Build the prompt
-        prompt = self._build_prompt(extracted, web_results)
-
-        # Call Gemini
-        resp_text = call_gemini(prompt, model="models/gemini-2.5-flash")
-
-        # Clean markdown code fences
+        prompt = self._build_prompt(extracted, web_results, mcp_comps)
+        resp_text = call_llm(prompt)
         clean_json = self._clean_json(resp_text)
 
-        # Parse JSON safely
         try:
-            return json.loads(clean_json)
+            data = json.loads(clean_json)
         except Exception as e:
             return {
                 "error": "Failed to parse JSON",
                 "exception": str(e),
                 "raw_response": resp_text,
-                "cleaned_response": clean_json
+                "cleaned_response": clean_json,
             }
+
+        # Merge web sources if LLM didn't include them
+        llm_sources = data.get("sources") or []
+        if web_sources and len(llm_sources) < 2:
+            existing_urls = {s.get("url") for s in llm_sources if s.get("url")}
+            for src in web_sources:
+                if src.get("url") and src["url"] not in existing_urls:
+                    llm_sources.append({
+                        "title": src.get("title", ""),
+                        "url": src.get("url", ""),
+                        "snippet": src.get("snippet", ""),
+                    })
+            data["sources"] = llm_sources[:8]
+
+        data["web_search_used"] = use_search and bool(web_sources)
+        return data

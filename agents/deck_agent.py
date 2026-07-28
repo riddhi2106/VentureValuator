@@ -2,7 +2,7 @@ from typing import Dict, Any
 import json
 import os
 from datetime import datetime
-from tools.llm_client import call_gemini
+from tools.llm_client import call_llm
 from pptx import Presentation
 from pptx.util import Pt
 
@@ -13,7 +13,7 @@ class PitchDeckAgent:
     Produces both JSON slide structure AND a real .pptx file.
     """
 
-    def __init__(self, model="models/gemini-2.5-flash"):
+    def __init__(self, model=None):
         self.model = model
 
     def _build_prompt(self, bundle: Dict[str, Any]):
@@ -61,6 +61,14 @@ MEMO
 ========================
 {json.dumps(bundle.get("memo", {}), indent=2)}
 """
+
+    def _clean_json(self, text: str) -> str:
+        clean = text.replace("```json", "").replace("```", "").strip()
+        start = clean.find("{")
+        end = clean.rfind("}") + 1
+        if start != -1 and end > start:
+            return clean[start:end]
+        return clean
 
     # ----------------------------------------------------------------------
     #   PPTX Creation Logic
@@ -110,13 +118,13 @@ MEMO
         }
 
         prompt = self._build_prompt(bundle)
-        raw = call_gemini(prompt, model=self.model)
+        raw = call_llm(prompt, model=self.model)
 
-        # Try to parse JSON safely
+        clean_json = self._clean_json(raw)
+
         try:
-            slides_json = json.loads(raw)
+            slides_json = json.loads(clean_json)
         except Exception:
-            # fallback: attempt substring JSON extraction
             try:
                 start = raw.find("{")
                 end = raw.rfind("}") + 1

@@ -2,13 +2,14 @@
 import json
 from typing import Optional
 from tools.pdf_reader import pdf_reader
-from tools.llm_client import call_gemini
+from tools.llm_client import call_llm
 
 # Slightly expanded prompt (keeps your original instructions but asks for extra numeric metrics)
 DEFAULT_PROMPT_TEMPLATE = """
 You are an expert startup analyst. Given the extracted raw text from a pitch deck or startup description below,
 produce a JSON object with the following exact keys (use these exact key names):
 
+- name  (the startup/company name — look for it on the cover slide, header, or footer; REQUIRED)
 - problem
 - solution
 - target_customer
@@ -22,6 +23,7 @@ produce a JSON object with the following exact keys (use these exact key names):
 
 Return ONLY valid JSON.  
 If you cannot find a value, set it to "" or [].
+For "name": if the company name is truly not mentioned anywhere, set it to "Unknown Startup".
 
 NOTE (ADDED): In notable_metrics try to extract any numeric metrics if present (examples: Last month revenue, MAU, MoM growth, NPS, repeat rate, orders last quarter, number of hubs, COGS %, marketing_cost_monthly, tech_cost_monthly, avg_delivery_time). Put them inside the notable_metrics dict with reasonable keys.
 
@@ -56,7 +58,7 @@ class ExtractionAgent:
         prompt = DEFAULT_PROMPT_TEMPLATE.format(raw_text=text[:20000])
         print("[ExtractionAgent] Calling LLM...")
 
-        resp_text = call_gemini(prompt, model="models/gemini-2.5-flash")
+        resp_text = call_llm(prompt)
 
         # Parse JSON safely
         try:
@@ -80,7 +82,7 @@ class ExtractionAgent:
 
         # REQUIRED KEYS
         required = [
-            "problem", "solution", "target_customer",
+            "name", "problem", "solution", "target_customer",
             "business_model", "pricing", "gtm_strategy",
             "cost_structure", "competition", "notable_metrics", "assumptions"
         ]
@@ -160,8 +162,14 @@ class ExtractionAgent:
                     data[key] = []
                 elif key == "notable_metrics":
                     data[key] = {}
+                elif key == "name":
+                    data[key] = "Unknown Startup"
                 else:
                     data[key] = ""
+
+        # Fallback: if name is empty, try to derive from solution or leave Unknown
+        if not data.get("name"):
+            data["name"] = "Unknown Startup"
 
         # Track missing info fields
         data["missing_info"] = [k for k in required if not data.get(k)]

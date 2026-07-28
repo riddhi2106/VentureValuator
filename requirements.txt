@@ -1,5 +1,12 @@
-google-generativeai
-PyPDF2
-python-pptx
 streamlit
+python-pptx
 fpdf
+pdfplumber
+python-dotenv
+openai>=2.45.0,<3
+login-with-chatgpt>=0.1.2
+httpx
+ddgs>=9.0.0
+mcp>=1.0.0
+yfinance>=0.2.0
+plotly>=5.18.0

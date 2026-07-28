@@ -27,7 +27,7 @@ from tools.finance_utils import (
     multi_year_financial_table
 )
 
-from tools.llm_client import call_gemini
+from tools.llm_client import call_llm
 
 DEFAULT_MONTHS = 24
 
@@ -68,6 +68,14 @@ def _safe_div(a, b):
         return None
 
 
+def _get_metric(metrics: dict, *keys):
+    for k in keys:
+        val = metrics.get(k)
+        if val not in (None, "", []):
+            return val
+    return ""
+
+
 class FinancialAgent:
     def __init__(self, months: int = DEFAULT_MONTHS):
         self.months = months
@@ -75,14 +83,27 @@ class FinancialAgent:
     def _infer_inputs(self, extracted: Dict[str, Any]) -> Dict[str, Any]:
         inputs = {}
 
-        lm = extracted.get("notable_metrics", {}).get("Last month revenue") or ""
+        metrics = extracted.get("notable_metrics", {}) or {}
+        lm = _get_metric(
+            metrics,
+            "revenue_last_month",
+            "Last month revenue",
+            "last_month_revenue",
+            "revenue (last month)",
+        )
         revenue_monthly = _parse_money_to_float(lm)
         if not revenue_monthly:
             revenue_monthly = 100000.0
 
         inputs["revenue_monthly"] = revenue_monthly
 
-        mom = extracted.get("notable_metrics", {}).get("Month-over-month growth") or ""
+        mom = _get_metric(
+            metrics,
+            "mom_growth",
+            "Month-over-month growth",
+            "MoM growth",
+            "month-over-month growth",
+        )
         growth_monthly = 0.10
         if isinstance(mom, str) and "%" in mom:
             try:
@@ -94,7 +115,7 @@ class FinancialAgent:
 
         inputs["growth_monthly"] = growth_monthly
 
-        mau_s = extracted.get("notable_metrics", {}).get("Monthly active users") or ""
+        mau_s = _get_metric(metrics, "mau", "Monthly active users", "MAU")
         mau = None
         if isinstance(mau_s, str):
             digits = re.findall(r"[\d,]+", mau_s.replace("+", ""))
@@ -223,7 +244,7 @@ class FinancialAgent:
                     f"INPUTS:\n{json.dumps(inputs, indent=2)}\n\n"
                     f"SCENARIOS:\n{json.dumps(list(out['scenarios'].keys()), indent=2)}"
                 )
-                out["llm_explanation"] = call_gemini(prompt)
+                out["llm_explanation"] = call_llm(prompt)
             except Exception as e:
                 out["llm_explanation_error"] = str(e)
 

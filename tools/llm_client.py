@@ -164,6 +164,27 @@ Highly recommended for proceeding with due diligence.
 """
 
 
+def _make_client_from_session_token(model: str):
+    """
+    User session path: if user logged in via web interface, st.session_state.chatgpt_tokens
+    will contain their active TokenSet. Use MemoryTokenStore to load it.
+    """
+    try:
+        import streamlit as st
+        if "chatgpt_tokens" in st.session_state and st.session_state.chatgpt_tokens:
+            from login_with_chatgpt.auth.store import MemoryTokenStore
+            from login_with_chatgpt._client import ChatGPTAccount
+
+            tokens = st.session_state.chatgpt_tokens
+            store = MemoryTokenStore()
+            store.save("default", tokens)
+            account = ChatGPTAccount(store=store)
+            return account.openai()
+    except Exception:
+        pass
+    raise ValueError("No session token set")
+
+
 def _make_client_from_env_token(model: str):
     """
     Cloud-deployment path: if CHATGPT_TOKEN_JSON is set as a secret env var,
@@ -199,7 +220,17 @@ def call_llm(prompt: str, model: str | None = None) -> str:
 
     model = model or os.getenv("CHATGPT_MODEL", "gpt-5.6-sol")
 
-    # 1. Cloud path: token injected via CHATGPT_TOKEN_JSON secret env var
+    # 1. Highest priority: User session token (web-based login for visitors)
+    try:
+        client = _make_client_from_session_token(model)
+        resp = client.responses.create(model=model, input=prompt)
+        return resp.output_text
+    except ValueError:
+        pass  # No session token — check fallback paths
+    except Exception as session_err:
+        print(f"[llm_client] Session token auth failed: {session_err}")
+
+    # 2. Cloud path: token injected via CHATGPT_TOKEN_JSON secret env var
     try:
         client = _make_client_from_env_token(model)
         resp = client.responses.create(model=model, input=prompt)

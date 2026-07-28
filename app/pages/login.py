@@ -3,12 +3,12 @@
 import streamlit as st
 import time
 import os
-import httpx
 
 from app.components import connection_html, get_auth, setup_page
 from login_with_chatgpt._config import ProtocolConfig
 from login_with_chatgpt.auth.device import request_device_code, poll_device_code
 from login_with_chatgpt.auth.oauth import exchange_authorization_code
+from tools.auth_status import AuthStatus
 
 setup_page("Login / Connection", "Manage your ChatGPT connection for running analyses.")
 
@@ -120,7 +120,11 @@ else:
                                 st.session_state.chatgpt_tokens = tokens
                                 # Clean up active auth info
                                 del st.session_state.device_code_auth
-                                st.session_state.auth_status = None # Force recalculation of auth status
+                                st.session_state.auth_status = AuthStatus(
+                                    authenticated=True,
+                                    method="session",
+                                    model=os.getenv("CHATGPT_MODEL", "gpt-5.6-sol"),
+                                )
                                 st.success("Connected successfully!")
                                 time.sleep(1.0)
                                 st.rerun()

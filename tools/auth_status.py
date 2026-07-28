@@ -31,13 +31,15 @@ def _check_session_tokens() -> Optional[AuthStatus]:
             account = ChatGPTAccount(store=store)
             status = account.status()
             if status.authenticated:
-                # Get available models
-                model_ids = account.list_models()
                 default_model = os.getenv("CHATGPT_MODEL", "gpt-5.6-sol")
-                model = default_model if default_model in model_ids else (model_ids[0] if model_ids else default_model)
+                try:
+                    model_ids = account.list_models()
+                    model = default_model if default_model in model_ids else (model_ids[0] if model_ids else default_model)
+                except Exception:
+                    model = default_model
                 return AuthStatus(authenticated=True, method="session", model=model)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[auth_status] Session auth check failed: {e}")
     return None
 
 
@@ -50,9 +52,12 @@ def _check_keyring() -> AuthStatus:
         if not status.authenticated:
             return AuthStatus(authenticated=False, error="Not signed in to ChatGPT")
 
-        model_ids = account.list_models()
         default_model = os.getenv("CHATGPT_MODEL", "gpt-5.6-sol")
-        model = default_model if default_model in model_ids else (model_ids[0] if model_ids else default_model)
+        try:
+            model_ids = account.list_models()
+            model = default_model if default_model in model_ids else (model_ids[0] if model_ids else default_model)
+        except Exception:
+            model = default_model
         return AuthStatus(authenticated=True, method="keyring", model=model)
     except Exception as e:
         return AuthStatus(authenticated=False, error=str(e))

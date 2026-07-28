@@ -25,6 +25,7 @@ from core.orchestrator import (
 )
 from tools.auth_status import check_auth_status
 from tools.pdf_reader import validate_pdf_text
+from tools.startup_name import resolve_startup_name
 
 
 def init_session() -> None:
@@ -90,28 +91,42 @@ def pretty_json(obj) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
 
-def run_pipeline_thread(pdf_path: str) -> None:
+def startup_name_for_result(result: dict) -> str:
+    return resolve_startup_name(
+        result.get("extracted", {}),
+        pdf_path=result.get("pdf_path"),
+    )
+
+
+def run_pipeline_thread(
+    pdf_path: str,
+    chatgpt_tokens: object | None,
+) -> None:
     def on_progress(step, label, phase, error=None):
         pipeline_store.update_progress(step, label, phase, error)
 
     try:
         result = run_full_analysis(
             pdf_path,
+            chatgpt_tokens=chatgpt_tokens,
             progress_callback=on_progress,
             cancel_check=pipeline_store.is_cancel_requested,
         )
         pipeline_store.finish_success(result)
+
     except PipelineCancelledError as e:
         pipeline_store.finish_cancelled(
             f"Analysis stopped before completing **{e.label}**."
         )
+
     except PipelineStepError as e:
         pipeline_store.finish_error(f"Failed during **{e.label}**: {e}")
+
     except RuntimeError as e:
         pipeline_store.finish_error(str(e))
+
     except Exception as e:
         pipeline_store.finish_error(f"Unexpected error: {e}")
-
 
 def connection_html(auth, test_mode) -> str:
     if test_mode:
@@ -167,7 +182,7 @@ def render_overview_metrics(auth, test_mode) -> None:
             </div>
             <div class="vv-metric">
                 <div class="vv-metric-label">Agents</div>
-                <div class="vv-metric-value">7</div>
+                <div class="vv-metric-value">6</div>
             </div>
         </div>
         """,
@@ -292,9 +307,7 @@ def render_results(result: dict) -> None:
     financial = result.get("financial_model", {})
     skeptic = result.get("skeptic", {})
     memo_text = memo_out.get("memo_text", "")
-    impact = result.get("impact", {})
-
-    startup_name = extracted.get("name") or extracted.get("company_name") or "Startup Analysis"
+    startup_name = startup_name_for_result(result)
     score = overall.get("score", 0)
     verdict = overall.get("verdict", "—")
     conf = overall.get("confidence", 0)
@@ -310,28 +323,6 @@ def render_results(result: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    # Impact score banner
-    impact_score = impact.get("impact_score", 0)
-    sdg_label = impact.get("sdg_alignment", "")
-    impact_rationale = impact.get("rationale", "")
-    if impact_score or sdg_label:
-        sdg_color = "#3dd9b0" if impact_score >= 6 else ("#fbbf24" if impact_score >= 3 else "#a78bfa")
-        st.markdown(
-            f"""
-            <div style="display:flex;align-items:center;gap:1rem;background:rgba(61,217,176,0.06);border:1px solid rgba(61,217,176,0.2);
-                border-radius:14px;padding:1rem 1.5rem;margin:0.75rem 0;">
-                <div style="text-align:center;min-width:80px;">
-                    <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#799e90;">Impact Score</div>
-                    <div style="font-size:2rem;font-weight:700;color:{sdg_color};">{impact_score:.1f}<span style="font-size:0.9rem;opacity:0.6;">/10</span></div>
-                </div>
-                <div style="border-left:1px solid rgba(61,217,176,0.2);padding-left:1rem;flex:1;">
-                    <div style="font-weight:600;font-size:0.9rem;color:#f8fafc;">{sdg_label or 'SDG Assessment'}</div>
-                    <div style="font-size:0.85rem;color:#799e90;margin-top:0.3rem;line-height:1.5;">{impact_rationale}</div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
     st.caption(f"Completed {result.get('timestamp', '')}")
 
     ts_key = result.get("timestamp", "").replace(" ", "_").replace(":", "_").replace("-", "_")

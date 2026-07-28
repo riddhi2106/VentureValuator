@@ -1,7 +1,6 @@
 from agents.extractor_agent import ExtractionAgent
 from agents.market_agent import MarketAgent
 from agents.financial_agent import FinancialAgent
-from agents.impact_agent import ImpactAgent
 from agents.skeptic_agent import SkepticAgent
 from agents.memo_agent import MemoAgent
 from agents.deck_agent import PitchDeckAgent
@@ -9,6 +8,8 @@ from agents.deck_agent import PitchDeckAgent
 from core.memory_manager import memory
 from datetime import datetime
 from typing import Callable, Optional
+from tools.llm_client import use_session_tokens
+from tools.startup_name import resolve_startup_name
 
 
 class PipelineStepError(Exception):
@@ -49,13 +50,22 @@ def _check_cancel(
 
 def run_full_analysis(
     pdf_path: str,
+    chatgpt_tokens: object | None = None,
     progress_callback: Optional[ProgressCallback] = None,
     cancel_check: Optional[CancelCheck] = None,
+):
+    with use_session_tokens(chatgpt_tokens):
+        return _run_full_analysis(pdf_path, progress_callback, cancel_check)
+
+
+def _run_full_analysis(
+    pdf_path: str,
+    progress_callback: Optional[ProgressCallback],
+    cancel_check: Optional[CancelCheck],
 ):
     extractor = ExtractionAgent()
     market_agent = MarketAgent(use_web_search=True)
     financial_agent = FinancialAgent()
-    impact_agent = ImpactAgent()
     skeptic_agent = SkepticAgent()
     memo_agent = MemoAgent(use_llm=True)
     deck_agent = PitchDeckAgent()
@@ -64,7 +74,6 @@ def run_full_analysis(
         ("extraction", "Extracting pitch data from PDF", lambda: extractor.run(pdf_path=pdf_path)),
         ("market", "Running web-grounded market research", lambda ctx: market_agent.run(ctx["extracted"])),
         ("financial", "Building financial model", lambda ctx: financial_agent.run(ctx["extracted"])),
-        ("impact", "Evaluating SDG impact (Gemini ADK)", lambda ctx: impact_agent.run(ctx["extracted"])),
         ("skeptic", "Skeptical VC review", lambda ctx: skeptic_agent.run(ctx["extracted"], ctx["market"], ctx["financial"])),
         ("memo", "Generating investor memo & score", lambda ctx: memo_agent.run(ctx["extracted"], ctx["market"], ctx["financial"], ctx["skeptic"])),
         ("deck", "Creating pitch deck", lambda ctx: deck_agent.run(ctx["extracted"], ctx["market"], ctx["financial"], ctx["memo"])),
@@ -82,8 +91,6 @@ def run_full_analysis(
                 ctx["market"] = fn(ctx)
             elif step_key == "financial":
                 ctx["financial"] = fn(ctx)
-            elif step_key == "impact":
-                ctx["impact"] = fn(ctx)
             elif step_key == "skeptic":
                 ctx["skeptic"] = fn(ctx)
             elif step_key == "memo":
@@ -99,7 +106,6 @@ def run_full_analysis(
     extracted = ctx["extracted"]
     market_data = ctx["market"]
     financial_model = ctx["financial"]
-    impact_output = ctx.get("impact", {})
     skeptic_output = ctx["skeptic"]
     memo_output = ctx["memo"]
     pptx_path = deck_output.get("pptx_path")
@@ -110,7 +116,6 @@ def run_full_analysis(
         "extracted": extracted,
         "market": market_data,
         "financial_model": financial_model,
-        "impact": impact_output,
         "skeptic": skeptic_output,
         "memo": memo_output,
         "deck": pptx_path,
@@ -124,7 +129,7 @@ def run_full_analysis(
 
     memory.append_to_memory_bank({
         "timestamp": result["timestamp"],
-        "name": extracted.get("name", "Unknown Startup"),
+        "name": resolve_startup_name(extracted, pdf_path=pdf_path),
         "one_liner": one_liner,
         "market_category": market_data.get("market_category", ""),
         "tam": market_data.get("tam", ""),

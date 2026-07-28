@@ -2,7 +2,7 @@
 
 **AI-powered startup pitch deck analyser for investors and founders.**
 
-Upload a pitch deck PDF and VentureValuator runs a full due-diligence pipeline in minutes — extracting structured data, conducting web-grounded market research, modelling unit economics, scoring UN SDG impact, stress-testing assumptions with a sceptical VC persona, and generating a professional investor memo and PowerPoint pitch deck.
+Upload a pitch deck PDF and VentureValuator runs a full due-diligence pipeline in minutes — extracting structured data, conducting web-grounded market research, modelling unit economics, stress-testing assumptions with a sceptical VC persona, and generating a professional investor memo and PowerPoint pitch deck.
 
 ---
 
@@ -33,7 +33,6 @@ This reduces hours of work into minutes, enabling founders to quickly test the v
 | **PDF extraction** | Parses any pitch deck and extracts problem, solution, target customer, business model, GTM strategy, competition, pricing, and key numeric metrics |
 | **Market research** | Web-grounded analysis via DuckDuckGo / Tavily with live public-company comparable multiples via a local MCP server (Yahoo Finance P/S ratios) |
 | **Financial modelling** | Builds a 24-month revenue projection with base / conservative / optimistic scenarios, gross margin, CAC, LTV, LTV/CAC ratio, and breakeven month |
-| **SDG impact scoring** | Powered by Gemini — evaluates alignment with UN Sustainable Development Goals (Rural Health, Waste, Urban Mobility) and returns a 0–10 impact score with KPIs to track |
 | **Sceptical VC review** | A dedicated agent challenges claims, surfaces red flags, flags missing data, and proposes partner-meeting questions |
 | **Investor memo** | Generates a structured memo with a weighted 6-dimension rubric score, overall verdict (Invest / Pass / Neutral / Avoid), and confidence percentage |
 | **Pitch deck export** | Auto-generates a `.pptx` slide deck from the analysis output |
@@ -55,20 +54,19 @@ VentureValuator/
 │   └── pages/              # Multi-page Streamlit pages
 │
 ├── core/
-│   ├── orchestrator.py     # Sequential 7-step pipeline runner
+│   ├── orchestrator.py     # Sequential 6-step pipeline runner
 │   └── memory_manager.py   # Local run persistence
 │
 ├── agents/                 # One agent per pipeline stage
 │   ├── extractor_agent.py  # PDF → structured JSON (LLM)
 │   ├── market_agent.py     # Market research (web + MCP comps)
 │   ├── financial_agent.py  # Financial model & projections
-│   ├── impact_agent.py     # UN SDG impact scoring (Gemini)
 │   ├── skeptic_agent.py    # Sceptical VC challenge review
 │   ├── memo_agent.py       # Investor memo + weighted scoring
 │   └── deck_agent.py       # PowerPoint deck generation
 │
 ├── tools/
-│   ├── llm_client.py       # Unified LLM dispatcher (ChatGPT / Gemini)
+│   ├── llm_client.py       # Unified ChatGPT client and auth fallbacks
 │   ├── pdf_reader.py       # PDF text extraction (pdfplumber)
 │   ├── web_search.py       # DuckDuckGo / Tavily search wrapper
 │   ├── mcp_client.py       # Client for local MCP finance server
@@ -95,16 +93,13 @@ PDF Upload
 [3] FinancialAgent    →  revenue model, CAC, LTV, breakeven
     │
     ▼
-[4] ImpactAgent       →  SDG alignment & impact score (Gemini)
+[4] SkepticAgent      →  red flags, partner questions, diligence steps
     │
     ▼
-[5] SkepticAgent      →  red flags, partner questions, diligence steps
+[5] MemoAgent         →  weighted rubric score + investor memo text
     │
     ▼
-[6] MemoAgent         →  weighted rubric score + investor memo text
-    │
-    ▼
-[7] PitchDeckAgent    →  .pptx export
+[6] PitchDeckAgent    →  .pptx export
 ```
 
 ---
@@ -192,8 +187,6 @@ VentureValuator supports two LLM backends, configurable via `LLM_PROVIDER` in `.
 |---|---|
 | `chatgpt_oauth` | Uses the [login-with-chatgpt](https://pypi.org/project/login-with-chatgpt/) OAuth proxy — no API key required, uses your ChatGPT account |
 | `openai` | Standard OpenAI API key (`OPENAI_API_KEY`) |
-
-The `ImpactAgent` always calls **Google Gemini** directly (via `call_gemini` in `tools/llm_client.py`). Set your Gemini credentials accordingly if you want SDG scoring.
 
 ### Test / demo mode
 

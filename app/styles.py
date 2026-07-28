@@ -15,7 +15,6 @@ AGENT_STEPS = [
     ("extraction", "Extract"),
     ("market", "Market"),
     ("financial", "Financial"),
-    ("impact", "Impact"),
     ("skeptic", "Skeptic"),
     ("memo", "Memo"),
     ("deck", "Deck"),
@@ -32,7 +31,17 @@ THEME_CSS = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-#MainMenu, footer {{ visibility: hidden; }}
+#MainMenu,
+footer,
+header[data-testid="stHeader"],
+[data-testid="stDecoration"],
+[data-testid="stToolbar"] {{
+    display: none !important;
+}}
+
+[data-testid="stAppViewContainer"] {{
+    top: 0 !important;
+}}
 
 .stApp {{
     background: radial-gradient(ellipse 80% 50% at 20% 0%, rgba(61,217,176,0.07), transparent 55%),

@@ -3,13 +3,14 @@ import json
 from typing import Optional
 from tools.pdf_reader import pdf_reader
 from tools.llm_client import call_llm
+from tools.startup_name import resolve_startup_name
 
 # Slightly expanded prompt (keeps your original instructions but asks for extra numeric metrics)
 DEFAULT_PROMPT_TEMPLATE = """
 You are an expert startup analyst. Given the extracted raw text from a pitch deck or startup description below,
 produce a JSON object with the following exact keys (use these exact key names):
 
-- name  (the startup/company name — look for it on the cover slide, header, or footer; REQUIRED)
+- name  (the startup/company name — inspect the cover slide, logo text, headers, footers, and product references; REQUIRED)
 - problem
 - solution
 - target_customer
@@ -23,7 +24,8 @@ produce a JSON object with the following exact keys (use these exact key names):
 
 Return ONLY valid JSON.  
 If you cannot find a value, set it to "" or [].
-For "name": if the company name is truly not mentioned anywhere, set it to "Unknown Startup".
+For "name": always return the best concise company or product name supported by the deck.
+Never return "Unknown Startup", "Unknown", or a generic description.
 
 NOTE (ADDED): In notable_metrics try to extract any numeric metrics if present (examples: Last month revenue, MAU, MoM growth, NPS, repeat rate, orders last quarter, number of hubs, COGS %, marketing_cost_monthly, tech_cost_monthly, avg_delivery_time). Put them inside the notable_metrics dict with reasonable keys.
 
@@ -34,16 +36,16 @@ Raw text to analyze:
 
 class ExtractionAgent:
     """
-    Extraction agent using Gemini.
+    LLM-backed extraction agent.
     Produces guaranteed clean JSON output.
     """
 
-    def __init__(self, llm_preference: str = "gemini"):
+    def __init__(self, llm_preference: str = "chatgpt"):
         self.llm_preference = llm_preference
 
     def _safe_parse_json(self, resp_text: str) -> dict:
         """
-        Safely extract JSON even if Gemini returns markdown fences or text around it.
+        Safely extract JSON even if the LLM returns markdown fences or surrounding text.
         """
         clean = resp_text.replace("```json", "").replace("```", "").strip()
         start = clean.find("{")
@@ -54,7 +56,7 @@ class ExtractionAgent:
 
         return json.loads(clean[start:end])
 
-    def extract_from_text(self, text: str) -> dict:
+    def extract_from_text(self, text: str, fallback_name: str | None = None) -> dict:
         prompt = DEFAULT_PROMPT_TEMPLATE.format(raw_text=text[:20000])
         print("[ExtractionAgent] Calling LLM...")
 
@@ -66,6 +68,11 @@ class ExtractionAgent:
         except Exception:
             print("[ExtractionAgent] Failed to parse JSON. Returning fallback template.")
             return {
+                "name": resolve_startup_name(
+                    {},
+                    pdf_path=fallback_name,
+                    raw_text=text,
+                ),
                 "problem": "",
                 "solution": "",
                 "target_customer": "",
@@ -163,13 +170,15 @@ class ExtractionAgent:
                 elif key == "notable_metrics":
                     data[key] = {}
                 elif key == "name":
-                    data[key] = "Unknown Startup"
+                    data[key] = ""
                 else:
                     data[key] = ""
 
-        # Fallback: if name is empty, try to derive from solution or leave Unknown
-        if not data.get("name"):
-            data["name"] = "Unknown Startup"
+        data["name"] = resolve_startup_name(
+            data,
+            pdf_path=fallback_name,
+            raw_text=text,
+        )
 
         # Track missing info fields
         data["missing_info"] = [k for k in required if not data.get(k)]
@@ -180,7 +189,7 @@ class ExtractionAgent:
     def extract_from_pdf(self, pdf_path: str) -> dict:
         print("[ExtractionAgent] Reading PDF...")
         raw_text = pdf_reader(pdf_path)
-        return self.extract_from_text(raw_text)
+        return self.extract_from_text(raw_text, fallback_name=pdf_path)
 
     def run(self, startup_text: Optional[str] = None, pdf_path: Optional[str] = None) -> dict:
         if pdf_path:

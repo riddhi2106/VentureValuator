@@ -215,17 +215,16 @@ st.markdown(
     <div class="vv-hero">
         <div class="vv-hero-content">
             <div class="vv-hero-badge">AI Agent Builder Series 2026</div>
-            <h1>Evaluate startup opportunities<br>with <span>7 AI agents</span></h1>
+            <h1>Evaluate startup opportunities<br>with <span>6 AI agents</span></h1>
             <p>
                 Upload a pitch deck and VentureValuator automatically runs market research,
-                financial modelling, SDG impact scoring, skeptic review, and generates
+                financial modelling, skeptic review, and generates
                 a full investment memo — in under two minutes.
             </p>
             <div class="vv-agents-row">
                 <div class="vv-agent-chip">Extract</div>
                 <div class="vv-agent-chip">Market</div>
                 <div class="vv-agent-chip">Financial</div>
-                <div class="vv-agent-chip">Impact</div>
                 <div class="vv-agent-chip">Skeptic</div>
                 <div class="vv-agent-chip">Memo</div>
                 <div class="vv-agent-chip">Deck</div>
@@ -252,13 +251,13 @@ st.markdown(
         </div>
         <div class="vv-feature-card">
             <div class="vv-feature-num">04</div>
-            <h3>SDG Impact Score</h3>
-            <p>Gemini evaluates the startup against UN SDGs (Rural Health, Waste, Traffic).</p>
+            <h3>Skeptic Review</h3>
+            <p>A contrarian VC agent challenges assumptions, flags red flags, and asks hard questions.</p>
         </div>
         <div class="vv-feature-card">
             <div class="vv-feature-num">05</div>
-            <h3>Skeptic Review</h3>
-            <p>A contrarian VC agent pokes holes in assumptions, flags red flags, and asks hard questions.</p>
+            <h3>Investor Scoring</h3>
+            <p>A weighted rubric turns the analysis into a clear score, verdict, and confidence level.</p>
         </div>
         <div class="vv-feature-card">
             <div class="vv-feature-num">06</div>
@@ -277,7 +276,7 @@ st.markdown(
             </div>
             <div class="vv-step-item" data-n="STEP 2">
                 <h4>Agents run</h4>
-                <p>7 AI agents execute in sequence — takes about 60–120 seconds.</p>
+                <p>6 AI agents execute in sequence — takes about 60–120 seconds.</p>
             </div>
             <div class="vv-step-item" data-n="STEP 3">
                 <h4>Review results</h4>

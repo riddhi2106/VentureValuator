@@ -9,7 +9,12 @@ if _ROOT not in sys.path:
 
 import streamlit as st
 
-from app.components import pretty_json, render_results, setup_page
+from app.components import (
+    pretty_json,
+    render_results,
+    setup_page,
+    startup_name_for_result,
+)
 from core.memory_manager import memory
 
 
@@ -37,8 +42,7 @@ else:
     run_map = {}
     for i, run in enumerate(runs):
         data = run.get("data", {})
-        extracted = data.get("extracted", {})
-        name = extracted.get("name") or extracted.get("company_name") or "Unknown startup"
+        name = startup_name_for_result(data)
         score = data.get("memo", {}).get("evaluation", {}).get("overall", {}).get("score")
         score_str = f"{score:.1f}/10" if score is not None else "No score"
         date_short = run.get("timestamp", "")[:10]
@@ -58,7 +62,6 @@ else:
         for col, label in zip(cols, selected_labels):
             run = run_map[label]
             data = run.get("data", {})
-            extracted = data.get("extracted", {})
             memo = data.get("memo", {})
             evaluation = memo.get("evaluation", {})
             overall = evaluation.get("overall", {})
@@ -67,7 +70,7 @@ else:
             base = financial.get("scenarios", {}).get("base", {})
             cac_ltv = base.get("cac_ltv", {})
             
-            name = extracted.get("name") or extracted.get("company_name") or "Unknown"
+            name = startup_name_for_result(data)
             score = overall.get("score", 0)
             verdict = overall.get("verdict", "—")
             category = market.get("market_category", "—")
@@ -123,7 +126,7 @@ else:
         overall = evaluation.get("overall", {})
         market = data.get("market", {})
 
-        name = extracted.get("name") or extracted.get("company_name") or "Unknown startup"
+        name = startup_name_for_result(data)
         score = overall.get("score")
         verdict = overall.get("verdict", "—")
         category = market.get("market_category", "—")

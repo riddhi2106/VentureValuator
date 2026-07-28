@@ -91,7 +91,12 @@ with upload_col:
             st.session_state.pipeline_error = None
             st.session_state.cancel_requested = False
             st.session_state.show_results = False
-            threading.Thread(target=run_pipeline_thread, args=(pdf_path,), daemon=True).start()
+            chatgpt_tokens = st.session_state.get("chatgpt_tokens")
+            threading.Thread(
+                target=run_pipeline_thread,
+                args=(pdf_path, chatgpt_tokens),
+                daemon=True,
+            ).start()
             st.rerun()
 
 with guide_col:

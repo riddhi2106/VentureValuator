@@ -1,7 +1,26 @@
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Iterator
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_session_tokens: ContextVar[object | None] = ContextVar(
+    "chatgpt_session_tokens",
+    default=None,
+)
+
+
+@contextmanager
+def use_session_tokens(tokens: object | None) -> Iterator[None]:
+    """Make tokens available to LLM calls in the current pipeline context."""
+    context_token = _session_tokens.set(tokens)
+    try:
+        yield
+    finally:
+        _session_tokens.reset(context_token)
 
 
 def _is_test_mode() -> bool:
@@ -12,6 +31,7 @@ def _mock_response(prompt: str) -> str:
     if "produce a JSON object with the following exact keys" in prompt:
         return """
 {
+  "name": "VentureValuator",
   "problem": ["Early-stage founders struggle to validate business ideas quickly.", "Investors waste time manually analyzing inconsistent, poorly structured pitch decks."],
   "solution": ["VentureValuator automated analysis system.", "Unified dashboard presenting score, market metrics, and financial models."],
   "target_customer": ["Early-stage startup founders", "Angel investors and venture capital firms"],
@@ -166,23 +186,20 @@ Highly recommended for proceeding with due diligence.
 
 def _make_client_from_session_token(model: str):
     """
-    User session path: if user logged in via web interface, st.session_state.chatgpt_tokens
-    will contain their active TokenSet. Use MemoryTokenStore to load it.
+    Build a client from tokens captured by the Streamlit script thread and
+    passed into the current pipeline context.
     """
-    try:
-        import streamlit as st
-        if "chatgpt_tokens" in st.session_state and st.session_state.chatgpt_tokens:
-            from login_with_chatgpt.auth.store import MemoryTokenStore
-            from login_with_chatgpt._client import ChatGPTAccount
+    tokens = _session_tokens.get()
+    if tokens is None:
+        raise ValueError("No session token set")
 
-            tokens = st.session_state.chatgpt_tokens
-            store = MemoryTokenStore()
-            store.save("default", tokens)
-            account = ChatGPTAccount(store=store)
-            return account.openai()
-    except Exception:
-        pass
-    raise ValueError("No session token set")
+    from login_with_chatgpt.auth.store import MemoryTokenStore
+    from login_with_chatgpt._client import ChatGPTAccount
+
+    store = MemoryTokenStore()
+    store.save("default", tokens)
+    account = ChatGPTAccount(store=store)
+    return account.openai()
 
 
 def _make_client_from_env_token(model: str):
@@ -268,7 +285,3 @@ def call_llm(prompt: str, model: str | None = None) -> str:
             "  Local: run `uvx login-with-chatgpt login`\n"
             f"  Proxy error: {proxy_err}"
         ) from proxy_err
-
-
-def call_gemini(prompt: str, model: str = "") -> str:
-    return call_llm(prompt, model=model or None)

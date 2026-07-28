@@ -33,14 +33,20 @@ THEME_CSS = f"""
 
 #MainMenu,
 footer,
-header[data-testid="stHeader"],
 [data-testid="stDecoration"],
 [data-testid="stToolbar"] {{
     display: none !important;
 }}
 
-[data-testid="stAppViewContainer"] {{
-    top: 0 !important;
+header[data-testid="stHeader"] {{
+    display: block !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+}}
+
+[data-testid="stSidebarCollapsedControl"] {{
+    display: block !important;
+    z-index: 1000000 !important;
 }}
 
 .stApp {{

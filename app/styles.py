@@ -32,7 +32,7 @@ THEME_CSS = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-#MainMenu, footer, header {{ visibility: hidden; }}
+#MainMenu, footer {{ visibility: hidden; }}
 
 .stApp {{
     background: radial-gradient(ellipse 80% 50% at 20% 0%, rgba(61,217,176,0.07), transparent 55%),

@@ -24,6 +24,7 @@ from core.orchestrator import (
     run_full_analysis,
 )
 from tools.auth_status import check_auth_status
+from tools.llm_client import use_session_tokens
 from tools.pdf_reader import validate_pdf_text
 from tools.startup_name import resolve_startup_name
 
@@ -106,12 +107,12 @@ def run_pipeline_thread(
         pipeline_store.update_progress(step, label, phase, error)
 
     try:
-        result = run_full_analysis(
-            pdf_path,
-            chatgpt_tokens=chatgpt_tokens,
-            progress_callback=on_progress,
-            cancel_check=pipeline_store.is_cancel_requested,
-        )
+        with use_session_tokens(chatgpt_tokens):
+            result = run_full_analysis(
+                pdf_path,
+                progress_callback=on_progress,
+                cancel_check=pipeline_store.is_cancel_requested,
+            )
         pipeline_store.finish_success(result)
 
     except PipelineCancelledError as e:

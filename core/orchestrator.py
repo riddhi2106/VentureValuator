@@ -8,7 +8,6 @@ from agents.deck_agent import PitchDeckAgent
 from core.memory_manager import memory
 from datetime import datetime
 from typing import Callable, Optional
-from tools.llm_client import use_session_tokens
 from tools.startup_name import resolve_startup_name
 
 
@@ -50,18 +49,8 @@ def _check_cancel(
 
 def run_full_analysis(
     pdf_path: str,
-    chatgpt_tokens: object | None = None,
     progress_callback: Optional[ProgressCallback] = None,
     cancel_check: Optional[CancelCheck] = None,
-):
-    with use_session_tokens(chatgpt_tokens):
-        return _run_full_analysis(pdf_path, progress_callback, cancel_check)
-
-
-def _run_full_analysis(
-    pdf_path: str,
-    progress_callback: Optional[ProgressCallback],
-    cancel_check: Optional[CancelCheck],
 ):
     extractor = ExtractionAgent()
     market_agent = MarketAgent(use_web_search=True)

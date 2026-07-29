@@ -33,8 +33,7 @@ THEME_CSS = f"""
 
 #MainMenu,
 footer,
-[data-testid="stDecoration"],
-[data-testid="stToolbar"] {{
+[data-testid="stDecoration"] {{
     display: none !important;
 }}
 
@@ -42,6 +41,11 @@ header[data-testid="stHeader"] {{
     display: block !important;
     background: transparent !important;
     backdrop-filter: none !important;
+}}
+
+[data-testid="stToolbar"] {{
+    display: flex !important;
+    background: transparent !important;
 }}
 
 [data-testid="stSidebarCollapsedControl"] {{

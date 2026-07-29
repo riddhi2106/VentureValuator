@@ -76,6 +76,11 @@ header[data-testid="stHeader"] {{
     background: {NAVY_SIDEBAR} !important;
     border-right: 1px solid {NAVY_BORDER};
     box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+    display: block !important;
+    min-width: 300px !important;
+    width: 300px !important;
+    transform: translateX(0) !important;
+    visibility: visible !important;
 }}
 
 [data-testid="stSidebar"] > div:first-child {{
@@ -115,6 +120,8 @@ header[data-testid="stHeader"] {{
 
 [data-testid="stSidebarCollapseButton"] {{
     color: {MUTED} !important;
+    visibility: visible !important;
+    opacity: 1 !important;
 }}
 
 .vv-logo {{

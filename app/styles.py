@@ -242,6 +242,29 @@ header[data-testid="stHeader"] {{
     text-shadow: 0 0 10px {ACCENT_DIM};
 }}
 
+.vv-market-metric {{
+    min-height: 7.25rem;
+    padding: 0.8rem 0.15rem;
+}}
+
+.vv-market-metric-label {{
+    margin-bottom: 0.55rem;
+    color: {MUTED};
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}}
+
+.vv-market-metric-value {{
+    color: {WHITE};
+    font-size: clamp(1.05rem, 1.55vw, 1.45rem);
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}}
+
 /* Verdict hero */
 .vv-verdict {{
     background: linear-gradient(135deg, {NAVY_CARD} 0%, {NAVY_CARD_ALT} 100%);

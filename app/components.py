@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import sys
@@ -406,7 +407,15 @@ def render_results(result: dict) -> None:
         ]
         for col, (label, val) in zip(cols, metrics):
             if val:
-                col.metric(label, val)
+                col.markdown(
+                    f"""
+                    <div class="vv-market-metric">
+                        <div class="vv-market-metric-label">{html.escape(label)}</div>
+                        <div class="vv-market-metric-value">{html.escape(str(val))}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
         if market.get("summary_insights"):
             st.markdown(market["summary_insights"])
         for t in market.get("key_trends", []):

@@ -17,6 +17,7 @@ produce a JSON object with the following exact keys (use these exact key names):
 - business_model
 - pricing
 - gtm_strategy
+- team
 - cost_structure
 - competition
 - notable_metrics
@@ -27,7 +28,9 @@ If you cannot find a value, set it to "" or [].
 For "name": always return the best concise company or product name supported by the deck.
 Never return "Unknown Startup", "Unknown", or a generic description.
 
-NOTE (ADDED): In notable_metrics try to extract any numeric metrics if present (examples: Last month revenue, MAU, MoM growth, NPS, repeat rate, orders last quarter, number of hubs, COGS %, marketing_cost_monthly, tech_cost_monthly, avg_delivery_time). Put them inside the notable_metrics dict with reasonable keys.
+NOTE: In notable_metrics extract numeric metrics when present, including revenue, MAU,
+growth, retention, churn, gross margin, CAC, burn/monthly operating costs, NPS, repeat
+rate, orders, and delivery metrics. Never invent missing metrics or assumptions.
 
 Raw text to analyze:
 ---
@@ -91,7 +94,7 @@ class ExtractionAgent:
         required = [
             "name", "problem", "solution", "target_customer",
             "business_model", "pricing", "gtm_strategy",
-            "cost_structure", "competition", "notable_metrics", "assumptions"
+            "team", "cost_structure", "competition", "notable_metrics", "assumptions"
         ]
 
         # --- TYPE NORMALIZATION FIXES ----

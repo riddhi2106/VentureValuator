@@ -117,7 +117,12 @@ The `MemoAgent` uses a weighted 6-dimension framework:
 | Competitive Moat | 15% |
 | GTM & Team | 10% |
 
-The sceptical VC review applies a penalty of up to **−1.5 points** across all dimensions based on the number of red flags and missing data points.
+Scores reflect the quality, magnitude, and provenance of the available evidence—not
+merely whether a field is populated. Deck-sourced financials receive more weight than
+model assumptions, market claims are rewarded for independent citations, and the
+sceptical VC review applies targeted penalties to the dimensions affected by each red
+flag or missing diligence item. Confidence is calculated separately from evidence
+completeness.
 
 **Verdicts:**
 

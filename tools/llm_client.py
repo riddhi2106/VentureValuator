@@ -21,6 +21,7 @@ def _mock_response(prompt: str) -> str:
   "business_model": ["SaaS subscription model for VC teams", "Pay-per-report model for founders"],
   "pricing": ["$19 per deck analysis or $299/mo for VC teams"],
   "gtm_strategy": ["Direct outreach to startup incubators and accelerators", "Content marketing targeting venture capital platforms"],
+  "team": [],
   "cost_structure": ["Cloud hosting and API processing costs", "Marketing and direct sales staff"],
   "competition": ["Standard VC analyst teams", "Pitch deck design agencies", "Self-made templates"],
   "notable_metrics": {

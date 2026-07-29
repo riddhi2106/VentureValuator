@@ -82,6 +82,7 @@ class FinancialAgent:
 
     def _infer_inputs(self, extracted: Dict[str, Any]) -> Dict[str, Any]:
         inputs = {}
+        sources = {}
 
         metrics = extracted.get("notable_metrics", {}) or {}
         lm = _get_metric(
@@ -94,6 +95,9 @@ class FinancialAgent:
         revenue_monthly = _parse_money_to_float(lm)
         if not revenue_monthly:
             revenue_monthly = 100000.0
+            sources["revenue_monthly"] = "assumption"
+        else:
+            sources["revenue_monthly"] = "deck"
 
         inputs["revenue_monthly"] = revenue_monthly
 
@@ -105,13 +109,16 @@ class FinancialAgent:
             "month-over-month growth",
         )
         growth_monthly = 0.10
+        sources["growth_monthly"] = "assumption"
         if isinstance(mom, str) and "%" in mom:
             try:
                 growth_monthly = float(mom.replace("%", "")) / 100.0
+                sources["growth_monthly"] = "deck"
             except:
                 pass
         elif isinstance(mom, (int, float)):
             growth_monthly = float(mom)
+            sources["growth_monthly"] = "deck"
 
         inputs["growth_monthly"] = growth_monthly
 
@@ -127,23 +134,67 @@ class FinancialAgent:
 
         inputs["mau"] = mau
 
-        inputs["gross_margin"] = 0.25
+        gross_margin_raw = _get_metric(
+            metrics,
+            "gross_margin",
+            "Gross margin",
+            "average_gross_margin",
+        )
+        gross_margin = _parse_money_to_float(gross_margin_raw)
+        if gross_margin is not None:
+            gross_margin = gross_margin / 100 if gross_margin > 1 else gross_margin
+            sources["gross_margin"] = "deck"
+        else:
+            gross_margin = 0.25
+            sources["gross_margin"] = "assumption"
+        inputs["gross_margin"] = gross_margin
 
-        cac = 150.0
-        if mau and revenue_monthly:
+        cac_raw = _get_metric(metrics, "cac", "CAC", "customer_acquisition_cost")
+        cac = _parse_money_to_float(cac_raw)
+        if cac is not None:
+            sources["cac"] = "deck"
+        elif mau and sources["revenue_monthly"] == "deck":
             arpu = revenue_monthly / max(1, mau)
             cac = max(50.0, 3 * arpu)
+            sources["cac"] = "derived"
+        else:
+            cac = 150.0
+            sources["cac"] = "assumption"
 
         inputs["cac"] = cac
 
-        inputs["churn_monthly"] = 0.05
-        inputs["fixed_monthly_costs"] = 800000.0
+        churn_raw = _get_metric(metrics, "churn_monthly", "monthly_churn", "churn")
+        churn = _parse_money_to_float(churn_raw)
+        if churn is not None:
+            churn = churn / 100 if churn > 1 else churn
+            sources["churn_monthly"] = "deck"
+        else:
+            churn = 0.05
+            sources["churn_monthly"] = "assumption"
+        inputs["churn_monthly"] = churn
+
+        fixed_cost_raw = _get_metric(
+            metrics,
+            "fixed_monthly_costs",
+            "monthly_operating_costs",
+            "burn_monthly",
+        )
+        fixed_costs = _parse_money_to_float(fixed_cost_raw)
+        if fixed_costs is not None:
+            sources["fixed_monthly_costs"] = "deck"
+        else:
+            fixed_costs = 800000.0
+            sources["fixed_monthly_costs"] = "assumption"
+        inputs["fixed_monthly_costs"] = fixed_costs
 
         if mau and revenue_monthly:
             inputs["arpu_monthly"] = revenue_monthly / max(1, mau)
+            sources["arpu_monthly"] = "derived"
         else:
             inputs["arpu_monthly"] = 250.0
+            sources["arpu_monthly"] = "assumption"
 
+        inputs["_sources"] = sources
         return inputs
 
     def _build_projection(self, start_rev, growth, months, gross_margin, fixed_monthly):
@@ -222,7 +273,8 @@ class FinancialAgent:
             "revenue_monthly_start": inputs["revenue_monthly"],
             "arpu_monthly": inputs["arpu_monthly"],
             "cac": inputs["cac"],
-            "gross_margin": inputs["gross_margin"]
+            "gross_margin": inputs["gross_margin"],
+            "input_sources": inputs["_sources"],
         }
 
         # ⭐ 5-Year Projection (60 months)

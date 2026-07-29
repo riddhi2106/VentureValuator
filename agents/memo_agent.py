@@ -4,6 +4,7 @@ MemoAgent with weighted 6-dimension scoring rubric and LLM-generated insights.
 
 from typing import Dict, Any
 import json
+import re
 import textwrap
 from tools.llm_client import call_llm
 
@@ -54,92 +55,145 @@ def _get_metrics(extracted: dict) -> dict:
     return extracted.get("notable_metrics") or {}
 
 
+def _numeric(value) -> float | None:
+    if value in (None, "", []):
+        return None
+    text = str(value).lower().replace(",", "")
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    number = float(match.group())
+    if "billion" in text or re.search(r"\d\s*b\b", text):
+        number *= 1_000_000_000
+    elif "million" in text or re.search(r"\d\s*m\b", text):
+        number *= 1_000_000
+    elif "lakh" in text:
+        number *= 100_000
+    elif "crore" in text:
+        number *= 10_000_000
+    return number
+
+
+def _content_depth(value) -> int:
+    if not _has_content(value):
+        return 0
+    if isinstance(value, list):
+        return sum(len(str(item).split()) for item in value)
+    return len(str(value).split())
+
+
 def _score_problem_clarity(extracted: dict) -> tuple[float, str]:
-    score = 4.0
+    score = 1.5
     notes = []
     problem = extracted.get("problem")
     solution = extracted.get("solution")
     if _has_content(problem):
-        score += 2.0 if isinstance(problem, list) and len(problem) >= 2 else 1.0
-        notes.append("Problem articulated")
+        depth = _content_depth(problem)
+        score += 2.0 if depth >= 18 else 1.0
+        notes.append("Problem is specific" if depth >= 18 else "Problem is stated but thin")
     else:
-        notes.append("Problem unclear or missing")
+        notes.append("Problem evidence missing")
     if _has_content(solution):
-        score += 2.0
-        notes.append("Solution defined")
+        depth = _content_depth(solution)
+        score += 2.0 if depth >= 18 else 1.0
+        notes.append("Solution is well described" if depth >= 18 else "Solution detail is limited")
     if _has_content(extracted.get("target_customer")):
-        score += 1.0
+        score += 1.5
         notes.append("Target customer identified")
+    if _has_content(extracted.get("pricing")):
+        score += 1.0
+        notes.append("Customer value is tied to pricing")
     return min(10.0, score), "; ".join(notes)
 
 
 def _score_market_timing(market: dict) -> tuple[float, str]:
-    score = 4.0
+    score = 1.5
     notes = []
-    if market.get("tam"):
-        score += 2.0
-        notes.append("TAM provided")
-    if market.get("market_growth_rate"):
+    sources = [s for s in (market.get("sources") or []) if s.get("url")]
+    tam = _numeric(market.get("tam"))
+    sam = _numeric(market.get("sam"))
+    growth = _numeric(market.get("market_growth_rate"))
+    if tam:
         score += 1.5
-        notes.append("Growth rate cited")
-    if market.get("key_trends") and len(market.get("key_trends", [])) >= 2:
-        score += 1.5
-        notes.append("Market trends identified")
-    if market.get("sources") and len(market.get("sources", [])) >= 2:
+        notes.append("TAM quantified")
+    if sam:
         score += 1.0
-        notes.append("Web-cited research")
+        notes.append("SAM quantified")
+    if growth is not None:
+        score += 2.0 if growth >= 15 else (1.25 if growth >= 5 else 0.5)
+        notes.append(f"Market growth reported at ~{growth:g}%")
+    if market.get("key_trends") and len(market.get("key_trends", [])) >= 2:
+        score += 1.0
+        notes.append("Market trends identified")
+    if len(sources) >= 2:
+        score += 2.0
+        notes.append("Claims supported by multiple sources")
+    elif sources:
+        score += 0.75
+        notes.append("Limited source support")
+    else:
+        notes.append("Market claims are not source-backed")
     return min(10.0, score), "; ".join(notes)
 
 
 def _score_traction(extracted: dict) -> tuple[float, str]:
-    score = 3.0
+    score = 1.0
     notes = []
     metrics = _get_metrics(extracted)
     revenue = metrics.get("revenue_last_month") or metrics.get("Last month revenue")
     mau = metrics.get("mau") or metrics.get("Monthly active users")
     growth = metrics.get("mom_growth") or metrics.get("Month-over-month growth")
 
-    if revenue:
-        score += 2.5
-        notes.append("Revenue data present")
-    if mau:
-        score += 2.0
-        notes.append("User/traction metrics present")
-    if growth:
-        score += 1.5
-        notes.append("Growth rate provided")
+    revenue_n = _numeric(revenue)
+    mau_n = _numeric(mau)
+    growth_n = _numeric(growth)
+    if revenue_n is not None:
+        score += 2.5 if revenue_n >= 100_000 else (1.75 if revenue_n >= 10_000 else 1.0)
+        notes.append(f"Monthly revenue evidence: {revenue}")
+    if mau_n is not None:
+        score += 2.0 if mau_n >= 10_000 else (1.25 if mau_n >= 1_000 else 0.75)
+        notes.append(f"Usage evidence: {mau}")
+    if growth_n is not None:
+        score += 2.0 if growth_n >= 15 else (1.25 if growth_n > 0 else 0.25)
+        notes.append(f"Growth evidence: {growth}")
     if len([k for k, v in metrics.items() if v]) >= 4:
-        score += 1.0
+        score += 1.5
         notes.append("Rich metrics package")
     if not notes:
-        notes.append("Limited traction data in deck")
+        notes.append("No quantified traction in the deck")
     return min(10.0, score), "; ".join(notes)
 
 
 def _score_unit_economics(financial: dict) -> tuple[float, str]:
-    score = 4.0
+    score = 1.5
     notes = []
     summary = financial.get("summary", {})
-    if summary.get("revenue_monthly_start"):
+    sources = summary.get("input_sources") or {}
+    if sources.get("revenue_monthly") == "deck":
         score += 2.0
-        notes.append("Revenue baseline modeled")
-    if summary.get("gross_margin") is not None:
+        notes.append("Revenue baseline comes from deck")
+    else:
+        notes.append("Revenue baseline is assumed")
+    if sources.get("gross_margin") == "deck" and summary.get("gross_margin") is not None:
         gm = summary["gross_margin"]
-        score += 1.5 if gm >= 0.4 else 0.5
-        notes.append(f"Gross margin ~{gm * 100:.0f}%")
-    if summary.get("cac"):
-        score += 1.0
+        score += 2.0 if gm >= 0.6 else (1.25 if gm >= 0.4 else 0.5)
+        notes.append(f"Deck-sourced gross margin ~{gm * 100:.0f}%")
+    else:
+        notes.append("Gross margin is modeled, not evidenced")
+    if sources.get("cac") == "deck":
+        score += 1.5
         notes.append("CAC estimated")
     base = financial.get("scenarios", {}).get("base", {})
     cac_ltv = base.get("cac_ltv", {})
-    if cac_ltv.get("ltv_cac_ratio") and cac_ltv["ltv_cac_ratio"] > 2:
-        score += 1.5
-        notes.append("LTV/CAC ratio healthy")
+    ratio = cac_ltv.get("ltv_cac_ratio")
+    if ratio and sources.get("cac") != "assumption" and sources.get("arpu_monthly") != "assumption":
+        score += 2.0 if ratio >= 3 else (1.0 if ratio >= 1 else 0.25)
+        notes.append(f"LTV/CAC modeled at {ratio:.1f}x from available evidence")
     return min(10.0, score), "; ".join(notes) if notes else "Unit economics not fully evidenced"
 
 
 def _score_competitive_moat(extracted: dict, market: dict) -> tuple[float, str]:
-    score = 4.0
+    score = 1.5
     notes = []
     landscape = market.get("competitive_landscape") or {}
     advantages = landscape.get("competitive_advantages") or []
@@ -147,29 +201,38 @@ def _score_competitive_moat(extracted: dict, market: dict) -> tuple[float, str]:
     deck_competition = extracted.get("competition") or []
 
     if advantages:
-        score += 2.0
-        notes.append("Competitive advantages stated")
+        score += min(2.0, len(advantages) * 0.75)
+        notes.append("Potential advantages identified")
     if competitors or deck_competition:
-        score += 1.5
+        score += 1.5 if deck_competition else 0.75
         notes.append("Competitive landscape mapped")
-    if _has_content(extracted.get("solution")) and len(advantages) >= 2:
-        score += 1.5
-        notes.append("Differentiation appears credible")
+    if len(advantages) >= 2 and _content_depth(extracted.get("solution")) >= 18:
+        score += 1.25
+        notes.append("Differentiation has supporting product detail")
+    risks = landscape.get("competitive_risks") or []
+    if len(risks) >= 2:
+        score -= 0.5
+        notes.append("Material competitive risks remain")
     return min(10.0, score), "; ".join(notes) if notes else "Weak competitive positioning evidence"
 
 
 def _score_gtm_team(extracted: dict) -> tuple[float, str]:
-    score = 4.0
+    score = 1.0
     notes = []
     if _has_content(extracted.get("gtm_strategy")):
-        score += 3.0
+        score += 2.5 if _content_depth(extracted.get("gtm_strategy")) >= 15 else 1.5
         notes.append("GTM strategy outlined")
     if _has_content(extracted.get("business_model")):
-        score += 2.0
+        score += 1.5
         notes.append("Business model clear")
     if _has_content(extracted.get("pricing")):
         score += 1.0
         notes.append("Pricing defined")
+    if _has_content(extracted.get("team")):
+        score += 2.5 if _content_depth(extracted.get("team")) >= 15 else 1.25
+        notes.append("Team experience provided")
+    else:
+        notes.append("Team evidence missing")
     return min(10.0, score), "; ".join(notes) if notes else "GTM/team details sparse"
 
 
@@ -179,23 +242,56 @@ def _apply_skeptic_penalty(dimensions: dict, skeptic: dict) -> dict:
 
     red_flags = skeptic.get("red_flags") or []
     missing = skeptic.get("missing_data") or []
-    penalty = min(1.5, len(red_flags) * 0.3 + len(missing) * 0.15)
+    concerns = " ".join(str(item).lower() for item in red_flags + missing)
+    penalties = {key: min(0.6, len(red_flags) * 0.08 + len(missing) * 0.05) for key in dimensions}
+    keyword_map = {
+        "traction_metrics": ("revenue", "traction", "retention", "churn", "growth", "customer"),
+        "unit_economics": ("cac", "ltv", "margin", "burn", "runway", "economics"),
+        "market_timing": ("tam", "sam", "market", "source"),
+        "competitive_moat": ("compet", "moat", "defensib", "differentiat"),
+        "gtm_team": ("team", "founder", "gtm", "sales", "distribution"),
+        "problem_clarity": ("problem", "customer", "solution", "use case"),
+    }
+    for key, keywords in keyword_map.items():
+        penalties[key] += min(1.2, sum(0.3 for word in keywords if word in concerns))
 
-    if penalty > 0:
-        for key in dimensions:
-            dimensions[key]["score"] = max(0, dimensions[key]["score"] - penalty * 0.5)
-        dimensions["_skeptic_penalty"] = round(penalty, 2)
+    for key, penalty in penalties.items():
+        dimensions[key]["score"] = round(max(0, dimensions[key]["score"] - penalty), 2)
+    dimensions["_skeptic_penalty"] = round(
+        sum(penalties.values()) / max(1, len(penalties)),
+        2,
+    )
     return dimensions
 
 
-def _verdict_from_score(score: float) -> tuple[str, float]:
+def _verdict_from_score(score: float) -> str:
     if score >= 7.5:
-        return "Invest", 0.85
+        return "Invest"
     if score >= 6.0:
-        return "Pass", 0.70
+        return "Pass"
     if score >= 5.0:
-        return "Neutral", 0.55
-    return "Avoid", 0.40
+        return "Neutral"
+    return "Avoid"
+
+
+def _evidence_confidence(extracted, market, financial, skeptic) -> float:
+    metrics = _get_metrics(extracted)
+    sources = [s for s in (market.get("sources") or []) if s.get("url")]
+    input_sources = financial.get("summary", {}).get("input_sources") or {}
+    deck_financials = sum(1 for source in input_sources.values() if source == "deck")
+    core_fields = ("problem", "solution", "target_customer", "business_model", "gtm_strategy", "team")
+    filled_fields = sum(1 for field in core_fields if _has_content(extracted.get(field)))
+    missing = len((skeptic or {}).get("missing_data") or [])
+
+    confidence = (
+        0.25
+        + min(0.18, filled_fields * 0.03)
+        + min(0.18, len([v for v in metrics.values() if v]) * 0.03)
+        + min(0.18, len(sources) * 0.06)
+        + min(0.15, deck_financials * 0.05)
+        - min(0.18, missing * 0.03)
+    )
+    return round(max(0.30, min(0.92, confidence)), 2)
 
 
 def _llm_insights(extracted, market, financial, skeptic, dimensions) -> dict:
@@ -312,7 +408,13 @@ class MemoAgent:
             for k, d in dimensions.items()
             if not k.startswith("_")
         )
-        verdict, confidence = _verdict_from_score(overall_score)
+        verdict = _verdict_from_score(overall_score)
+        confidence = _evidence_confidence(
+            extracted,
+            market,
+            financial,
+            skeptic or {},
+        )
 
         strengths, risks = [], []
         if self.use_llm:
@@ -329,6 +431,7 @@ class MemoAgent:
                 risks = [d["rationale"] for k, d in dimensions.items() if not k.startswith("_") and d["score"] < 6][:4]
 
         return {
+            "rubric_version": 2,
             "overall": {
                 "score": round(overall_score, 2),
                 "verdict": verdict,

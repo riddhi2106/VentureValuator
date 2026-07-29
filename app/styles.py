@@ -48,8 +48,11 @@ header[data-testid="stHeader"] {{
     background: transparent !important;
 }}
 
-[data-testid="stSidebarCollapsedControl"] {{
-    display: block !important;
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"] {{
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
     z-index: 1000000 !important;
 }}
 
@@ -76,11 +79,6 @@ header[data-testid="stHeader"] {{
     background: {NAVY_SIDEBAR} !important;
     border-right: 1px solid {NAVY_BORDER};
     box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
-    display: block !important;
-    min-width: 300px !important;
-    width: 300px !important;
-    transform: translateX(0) !important;
-    visibility: visible !important;
 }}
 
 [data-testid="stSidebar"] > div:first-child {{

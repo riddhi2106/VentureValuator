@@ -1,8 +1,9 @@
 # agents/extractor_agent.py
 import json
 from typing import Optional
-from tools.pdf_reader import pdf_reader
+
 from tools.llm_client import call_llm
+from tools.pdf_reader import pdf_reader
 from tools.startup_name import resolve_startup_name
 
 # Slightly expanded prompt (keeps your original instructions but asks for extra numeric metrics)
@@ -162,7 +163,7 @@ class ExtractionAgent:
             if isinstance(v, dict):
                 try:
                     nm[k] = json.dumps(v)
-                except:
+                except (TypeError, ValueError):
                     nm[k] = str(v)
 
         # ensure every required key exists

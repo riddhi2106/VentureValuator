@@ -6,7 +6,6 @@ import os
 import re
 from typing import Any
 
-
 _PLACEHOLDER_NAMES = {
     "",
     "unknown",

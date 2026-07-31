@@ -31,12 +31,14 @@ class MemoryManager:
         if not os.path.exists(path):
             return None
         try:
-            return json.load(open(path, "r"))
-        except:
+            with open(path) as stream:
+                return json.load(stream)
+        except (OSError, json.JSONDecodeError):
             return None
 
     def _save(self, path, data):
-        json.dump(data, open(path, "w"), indent=2)
+        with open(path, "w") as stream:
+            json.dump(data, stream, indent=2)
 
     # ---------- SESSION MEMORY ----------
     def add_run(self, run_dict):

@@ -2,6 +2,8 @@
 
 **AI-powered startup pitch deck analyser for investors and founders.**
 
+[![CI](https://github.com/riddhi2106/VentureValuator/actions/workflows/ci.yml/badge.svg)](https://github.com/riddhi2106/VentureValuator/actions/workflows/ci.yml)
+
 Upload a pitch deck PDF and VentureValuator runs a full due-diligence pipeline in minutes — extracting structured data, conducting web-grounded market research, modelling unit economics, stress-testing assumptions with a sceptical VC persona, and generating a professional investor memo and PowerPoint pitch deck.
 
 ---
@@ -74,7 +76,12 @@ VentureValuator/
 │   └── auth_status.py      # ChatGPT OAuth connection checker
 │
 ├── mcp_server.py           # Local MCP server (yfinance P/S ratios)
-├── requirements.txt
+├── tests/                  # Pytest unit/integration + Playwright E2E tests
+├── .github/workflows/      # Automated lint, test, coverage, and image build
+├── Dockerfile              # Non-root production container
+├── pyproject.toml          # Project metadata and dependency/tool configuration
+├── uv.lock                 # Reproducible dependency lock
+├── requirements.txt        # Streamlit Cloud compatibility export
 └── .env.example
 ```
 
@@ -144,7 +151,8 @@ git clone https://github.com/your-org/VentureValuator.git
 cd VentureValuator
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install uv
+uv sync
 ```
 
 ### 2. Configure environment
@@ -162,7 +170,7 @@ CHATGPT_MODEL=gpt-4o
 
 # If using the ChatGPT OAuth proxy (login-with-chatgpt)
 OPENAI_OAUTH_PROXY_URL=http://127.0.0.1:10531/v1
-
+```
 
 ### 3. Start the MCP finance server (optional but recommended)
 
@@ -181,6 +189,48 @@ streamlit run app/ui.py
 ```
 
 Open [http://localhost:8501](http://localhost:8501) in your browser.
+
+---
+
+## 🧪 Testing and code quality
+
+Install the development toolchain from the locked environment:
+
+```bash
+uv sync --frozen --extra dev
+```
+
+Run the same checks enforced by CI:
+
+```bash
+uv run ruff check .
+TEST_MODE=true DISABLE_WEB_SEARCH=true uv run pytest -q --cov
+uv run python -m compileall -q agents app core tools
+```
+
+The Python suite covers deterministic financial calculations, evidence provenance,
+rubric-v2 scoring, targeted skeptic penalties, startup naming, pipeline state, and
+end-to-end orchestration with external agents mocked. Browser journeys remain under
+`tests/*.spec.ts`.
+
+GitHub Actions runs linting, compilation, tests, and coverage on Python 3.12, 3.13,
+and 3.14, then verifies that the production Docker image builds.
+
+---
+
+## 🐳 Docker
+
+Build and run the non-root production image:
+
+```bash
+docker build -t venturevaluator .
+docker run --rm -p 8501:8501 --env-file .env venturevaluator
+```
+
+The container exposes port `8501`, persists runtime data under `/app/memory` and
+`/app/outputs`, and includes a health check against Streamlit's `/_stcore/health`
+endpoint. Mount those directories as volumes when persistence outside the container
+is required.
 
 ---
 
@@ -229,6 +279,10 @@ All runs are also persisted in the `memory/` directory for the history dashboard
 
 ## 📦 Dependencies
 
+`pyproject.toml` is the dependency and tooling source of truth. `uv.lock` pins the
+complete reproducible environment; `requirements.txt` is retained for Streamlit
+Community Cloud compatibility.
+
 | Package | Purpose |
 |---|---|
 | `streamlit` | Web UI framework |
@@ -252,7 +306,10 @@ All runs are also persisted in the `memory/` directory for the history dashboard
 3. Commit your changes (`git commit -m "feat: add my feature"`)
 4. Push and open a pull request
 
-Please keep each agent in its own file under `agents/` and use `tools/llm_client.py` as the single LLM dispatch point.
+Before opening a pull request, run `uv run ruff check .` and
+`TEST_MODE=true DISABLE_WEB_SEARCH=true uv run pytest -q --cov`. Please keep each
+agent in its own file under `agents/` and use `tools/llm_client.py` as the single LLM
+dispatch point.
 
 ---
 

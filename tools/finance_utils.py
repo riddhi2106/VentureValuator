@@ -9,8 +9,8 @@ These are pure math helpers:
 - monthly_to_annual()
 """
 
-from typing import List, Dict, Any
-import math
+from typing import Any, Dict, List
+
 
 def monthly_growth_series(start: float, growth: float, months: int) -> List[float]:
     """

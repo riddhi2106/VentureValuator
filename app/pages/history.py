@@ -17,7 +17,6 @@ from app.components import (
 )
 from core.memory_manager import memory
 
-
 setup_page(
     "Analysis history",
     "Browse every pitch deck you've analyzed — scores, verdicts, and full reports.",

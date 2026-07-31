@@ -1,8 +1,9 @@
-from typing import Dict, Any
-from tools.llm_client import call_llm
-from tools.web_search import search_for_startup
 import json
 import os
+from typing import Any, Dict
+
+from tools.llm_client import call_llm
+from tools.web_search import search_for_startup
 
 
 class MarketAgent:

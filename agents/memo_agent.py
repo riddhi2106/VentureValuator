@@ -2,10 +2,10 @@
 MemoAgent with weighted 6-dimension scoring rubric and LLM-generated insights.
 """
 
-from typing import Dict, Any
 import json
 import re
 import textwrap
+
 from tools.llm_client import call_llm
 
 MAX_BULLETS = 6

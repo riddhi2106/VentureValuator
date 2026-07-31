@@ -8,7 +8,6 @@ import os
 import sys
 import tempfile
 import threading
-import time
 
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
@@ -25,7 +24,6 @@ from core.orchestrator import (
     run_full_analysis,
 )
 from tools.auth_status import check_auth_status
-from tools.pdf_reader import validate_pdf_text
 from tools.startup_name import resolve_startup_name
 
 

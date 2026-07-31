@@ -1,8 +1,10 @@
 import asyncio
 import os
 import sys
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
 
 async def fetch_comps_via_mcp(ticker: str) -> str:
     # Path to the MCP server we created

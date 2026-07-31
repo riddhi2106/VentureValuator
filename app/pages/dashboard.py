@@ -13,9 +13,7 @@ import time
 import streamlit as st
 
 from app.components import (
-    connection_html,
     get_auth,
-    render_overview_metrics,
     render_results,
     render_stepper,
     run_pipeline_thread,
@@ -26,7 +24,6 @@ from app.components import (
 from app.pipeline_store import pipeline_store
 from app.styles import AGENT_STEPS
 from tools.pdf_reader import validate_pdf_text
-
 
 setup_page(
     "Dashboard",

@@ -177,8 +177,8 @@ def _make_client_from_session_token(model: str):
     if tokens is None:
         raise ValueError("No session token set")
 
-    from login_with_chatgpt.auth.store import MemoryTokenStore
     from login_with_chatgpt._client import ChatGPTAccount
+    from login_with_chatgpt.auth.store import MemoryTokenStore
 
     store = MemoryTokenStore()
     store.save("default", tokens)
@@ -197,9 +197,10 @@ def _make_client_from_env_token(model: str):
         raise ValueError("CHATGPT_TOKEN_JSON not set")
 
     import json as _json
-    from login_with_chatgpt.auth.store import MemoryTokenStore
-    from login_with_chatgpt.auth.models import TokenSet
+
     from login_with_chatgpt._client import ChatGPTAccount
+    from login_with_chatgpt.auth.models import TokenSet
+    from login_with_chatgpt.auth.store import MemoryTokenStore
 
     payload = _json.loads(token_json)
     tokens = TokenSet(
@@ -251,7 +252,7 @@ def call_llm(prompt: str, model: str | None = None) -> str:
             return resp.output_text
         finally:
             client.close()
-    except Exception as keyring_err:
+    except Exception:
         pass
 
     # 3. Local proxy fallback

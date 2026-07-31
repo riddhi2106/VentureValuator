@@ -13,20 +13,17 @@ Produces:
 - 5-year projections (monthly + annual)
 """
 
-from typing import Dict, Any
-import re
 import json
-import math
+import re
+from typing import Any, Dict
 
 from tools.finance_utils import (
-    monthly_growth_series,
-    cumulative,
     cac_ltv,
+    cumulative,
+    monthly_growth_series,
     monthly_to_annual,
-    yearly_growth_projection,
-    multi_year_financial_table
+    multi_year_financial_table,
 )
-
 from tools.llm_client import call_llm
 
 DEFAULT_MONTHS = 24
@@ -64,7 +61,7 @@ def _parse_money_to_float(s: str):
 def _safe_div(a, b):
     try:
         return a / b if b else None
-    except:
+    except (TypeError, ZeroDivisionError):
         return None
 
 
@@ -114,7 +111,7 @@ class FinancialAgent:
             try:
                 growth_monthly = float(mom.replace("%", "")) / 100.0
                 sources["growth_monthly"] = "deck"
-            except:
+            except (TypeError, ValueError):
                 pass
         elif isinstance(mom, (int, float)):
             growth_monthly = float(mom)
@@ -129,7 +126,7 @@ class FinancialAgent:
             if digits:
                 try:
                     mau = int(digits[0].replace(",", ""))
-                except:
+                except (TypeError, ValueError):
                     mau = None
 
         inputs["mau"] = mau

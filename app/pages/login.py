@@ -1,13 +1,14 @@
 """Connection Settings for VentureValuator."""
 
-import streamlit as st
-import time
 import os
+import time
+
+import streamlit as st
+from login_with_chatgpt._config import ProtocolConfig
+from login_with_chatgpt.auth.device import poll_device_code, request_device_code
+from login_with_chatgpt.auth.oauth import exchange_authorization_code
 
 from app.components import connection_html, get_auth, setup_page
-from login_with_chatgpt._config import ProtocolConfig
-from login_with_chatgpt.auth.device import request_device_code, poll_device_code
-from login_with_chatgpt.auth.oauth import exchange_authorization_code
 from tools.auth_status import AuthStatus
 
 setup_page("Login / Connection", "Manage your ChatGPT connection for running analyses.")

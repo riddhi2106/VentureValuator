@@ -1,9 +1,9 @@
-import sys
-import yfinance as yf
-from mcp.server.stdio import stdio_server
-from mcp.server import Server
-from mcp.types import Tool, TextContent
 import asyncio
+
+import yfinance as yf
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import TextContent, Tool
 
 app = Server("finance_server")
 

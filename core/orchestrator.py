@@ -1,13 +1,13 @@
-from agents.extractor_agent import ExtractionAgent
-from agents.market_agent import MarketAgent
-from agents.financial_agent import FinancialAgent
-from agents.skeptic_agent import SkepticAgent
-from agents.memo_agent import MemoAgent
-from agents.deck_agent import PitchDeckAgent
-
-from core.memory_manager import memory
 from datetime import datetime
 from typing import Callable, Optional
+
+from agents.deck_agent import PitchDeckAgent
+from agents.extractor_agent import ExtractionAgent
+from agents.financial_agent import FinancialAgent
+from agents.market_agent import MarketAgent
+from agents.memo_agent import MemoAgent
+from agents.skeptic_agent import SkepticAgent
+from core.memory_manager import memory
 from tools.startup_name import resolve_startup_name
 
 

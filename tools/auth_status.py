@@ -1,9 +1,10 @@
-import os
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import httpx
+
+from core.config import get_settings
 
 
 @dataclass
@@ -15,7 +16,7 @@ class AuthStatus:
 
 
 def _is_test_mode() -> bool:
-    return os.getenv("TEST_MODE", "false").lower() in ("true", "1", "yes")
+    return get_settings().test_mode
 
 
 def _tokens_look_usable(tokens: object) -> bool:
@@ -44,7 +45,7 @@ def _check_session_tokens() -> Optional[AuthStatus]:
             store = MemoryTokenStore()
             store.save("default", tokens)
             account = ChatGPTAccount(store=store)
-            default_model = os.getenv("CHATGPT_MODEL", "gpt-5.6-sol")
+            default_model = get_settings().chatgpt_model
 
             # Account status is local-only in current login-with-chatgpt versions,
             # but a library/version-specific parsing failure should not discard
@@ -75,7 +76,7 @@ def _check_keyring() -> AuthStatus:
         if not status.authenticated:
             return AuthStatus(authenticated=False, error="Not signed in to ChatGPT")
 
-        default_model = os.getenv("CHATGPT_MODEL", "gpt-5.6-sol")
+        default_model = get_settings().chatgpt_model
         try:
             model_ids = account.list_models()
             model = default_model if default_model in model_ids else (model_ids[0] if model_ids else default_model)
@@ -87,13 +88,14 @@ def _check_keyring() -> AuthStatus:
 
 
 def _check_proxy() -> AuthStatus:
-    proxy_url = os.getenv("OPENAI_OAUTH_PROXY_URL", "http://127.0.0.1:10531/v1").rstrip("/")
+    settings = get_settings()
+    proxy_url = settings.openai_oauth_proxy_url.rstrip("/")
     try:
         resp = httpx.get(f"{proxy_url}/models", timeout=3.0)
         resp.raise_for_status()
         data = resp.json()
         model_ids = [m.get("id") for m in data.get("data", []) if m.get("id")]
-        default_model = os.getenv("CHATGPT_MODEL", "gpt-5.6-sol")
+        default_model = settings.chatgpt_model
         model = default_model if default_model in model_ids else (model_ids[0] if model_ids else default_model)
         return AuthStatus(authenticated=True, method="proxy", model=model)
     except Exception as e:

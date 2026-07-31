@@ -1,7 +1,9 @@
 import json
 from typing import Any, Dict
 
+from agents.schemas import SkepticOutput
 from tools.llm_client import call_llm
+from tools.structured_output import StructuredOutputError, call_validated_json
 
 
 class SkepticAgent:
@@ -47,12 +49,16 @@ REQUIRED OUTPUT (JSON ONLY)
   "challenged_claims": ["claim from deck that needs verification and why"],
   "partner_questions": ["sharp question you'd ask the founder in a meeting"],
   "diligence_next_steps": ["what you'd verify before writing a term sheet"],
-  "skeptic_summary": "2-3 sentence blunt assessment"
+  "skeptic_summary": "2-3 sentence blunt assessment",
+  "evidence_refs": {{"finding summary": ["extracted.notable_metrics.cac", "market.sources[0]"]}}
 }}
 
 GUIDELINES:
 - Be direct and specific — no generic VC platitudes.
 - Reference actual fields from the data (TAM, revenue, competition, etc.).
+- Separate absent evidence from contradictory evidence.
+- Never criticize an assumed financial input as though the founder stated it.
+- Add field-path references for material findings in evidence_refs.
 - If data is missing, say so explicitly.
 - Return ONLY valid JSON.
 """
@@ -72,14 +78,16 @@ GUIDELINES:
         financial: Dict[str, Any],
     ) -> Dict[str, Any]:
         prompt = self._build_prompt(extracted, market, financial)
-        resp_text = call_llm(prompt)
-        clean = self._clean_json(resp_text)
-
         try:
-            return json.loads(clean)
-        except Exception as e:
+            return call_validated_json(
+                prompt,
+                SkepticOutput,
+                call_llm,
+                attempts=2,
+            ).model_dump()
+        except StructuredOutputError as exc:
             return {
                 "error": "Failed to parse skeptic JSON",
-                "exception": str(e),
-                "raw_response": resp_text,
+                "exception": str(exc),
+                "raw_response": exc.last_response,
             }

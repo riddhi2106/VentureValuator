@@ -17,6 +17,7 @@ import streamlit as st
 
 from app.pipeline_store import pipeline_store
 from app.styles import AGENT_STEPS, CHART_COLORS, inject_theme
+from core.config import get_settings
 from core.memory_manager import memory
 from core.orchestrator import (
     PipelineCancelledError,
@@ -69,7 +70,7 @@ def setup_page(title: str, subtitle: str) -> None:
 
 
 def is_test_mode() -> bool:
-    return os.getenv("TEST_MODE", "false").lower() in ("true", "1", "yes")
+    return get_settings().test_mode
 
 
 def get_auth():

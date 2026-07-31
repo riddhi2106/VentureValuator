@@ -1,6 +1,24 @@
 import pytest
 
-from agents.financial_agent import FinancialAgent
+from agents.financial_agent import FinancialAgent, _parse_money_to_float
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("$1.5m", 1_500_000),
+        ("₹2 lakh", 200_000),
+        ("3b", 3_000_000_000),
+        ("not disclosed", None),
+    ],
+)
+def test_money_parser_supports_deck_formats(raw, expected):
+    assert _parse_money_to_float(raw) == expected
+
+
+def test_financial_agent_rejects_non_positive_horizon():
+    with pytest.raises(ValueError, match="positive"):
+        FinancialAgent(months=0)
 
 
 def test_financial_agent_marks_missing_inputs_as_assumptions():
@@ -51,3 +69,32 @@ def test_financial_scenarios_are_ordered_by_growth():
     }
     assert month_24["conservative"] < month_24["base"] < month_24["optimistic"]
 
+
+def test_overrides_drive_sensitivity_without_losing_input_provenance():
+    result = FinancialAgent(months=2).run(
+        {"notable_metrics": {"revenue_last_month": "$10,000"}},
+        overrides={"growth_monthly": 0.0, "fixed_monthly_costs": 1_000},
+    )
+
+    assert result["scenarios"]["base"]["revenue_series"] == [10_000, 10_000]
+    assert result["scenarios"]["base"]["net_cashflow"] == [1_500, 1_500]
+    assert result["summary"]["input_sources"]["revenue_monthly"] == "deck"
+
+
+def test_financial_agent_sanitizes_impossible_inputs_and_growth():
+    result = FinancialAgent(months=2).run(
+        {
+            "notable_metrics": {
+                "revenue_last_month": "$10,000",
+                "mom_growth": "350%",
+                "gross_margin": "140%",
+                "churn": "0%",
+            }
+        }
+    )
+
+    assert result["inputs"]["growth_monthly"] == 1.0
+    assert result["inputs"]["gross_margin"] == 0.25
+    assert result["inputs"]["churn_monthly"] == 0.05
+    assert result["summary"]["input_sources"]["gross_margin"] == "assumption"
+    assert len(result["warnings"]) == 3

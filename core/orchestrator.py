@@ -12,6 +12,8 @@ from tools.startup_name import resolve_startup_name
 
 
 class PipelineStepError(Exception):
+    """Wrap an agent failure with the pipeline step shown in the UI."""
+
     def __init__(self, step: str, label: str, message: str):
         self.step = step
         self.label = label
@@ -52,6 +54,13 @@ def run_full_analysis(
     progress_callback: Optional[ProgressCallback] = None,
     cancel_check: Optional[CancelCheck] = None,
 ):
+    """Run the complete diligence pipeline and persist its result.
+
+    External-service behavior lives inside the individual agents; this function
+    owns ordering, cancellation boundaries, progress reporting, error context,
+    and the final normalized result contract.
+    """
+
     extractor = ExtractionAgent()
     market_agent = MarketAgent(use_web_search=True)
     financial_agent = FinancialAgent()

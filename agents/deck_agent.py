@@ -4,9 +4,12 @@ from datetime import datetime
 from typing import Any, Dict
 
 from pptx import Presentation
-from pptx.util import Pt
+from pptx.dml.color import RGBColor
+from pptx.util import Inches, Pt
 
+from agents.schemas import PitchDeckOutput
 from tools.llm_client import call_llm
+from tools.structured_output import StructuredOutputError, call_validated_json
 
 
 class PitchDeckAgent:
@@ -28,20 +31,26 @@ Do NOT invent financials or metrics. Use only what's provided.
 FORMAT: Return ONLY JSON:
 {{
   "slides": [
-    {{"title": "Problem", "bullets": []}},
-    {{"title": "Target User", "bullets": []}},
-    {{"title": "Current Behavior", "bullets": []}},
-    {{"title": "Solution", "bullets": []}},
-    {{"title": "Why Now", "bullets": []}},
-    {{"title": "Market Size", "bullets": []}},
-    {{"title": "Competition", "bullets": []}},
-    {{"title": "Unique Advantage", "bullets": []}},
-    {{"title": "Business Model", "bullets": []}},
-    {{"title": "Traction", "bullets": []}},
-    {{"title": "Financial Projection Summary", "bullets": []}},
-    {{"title": "The Ask (Fundraising)", "bullets": []}}
+    {{"title": "Problem", "bullets": [], "source_refs": []}},
+    {{"title": "Target User", "bullets": [], "source_refs": []}},
+    {{"title": "Current Behavior", "bullets": [], "source_refs": []}},
+    {{"title": "Solution", "bullets": [], "source_refs": []}},
+    {{"title": "Why Now", "bullets": [], "source_refs": []}},
+    {{"title": "Market Size", "bullets": [], "source_refs": []}},
+    {{"title": "Competition", "bullets": [], "source_refs": []}},
+    {{"title": "Unique Advantage", "bullets": [], "source_refs": []}},
+    {{"title": "Business Model", "bullets": [], "source_refs": []}},
+    {{"title": "Traction", "bullets": [], "source_refs": []}},
+    {{"title": "Financial Projection Summary", "bullets": [], "source_refs": []}},
+    {{"title": "The Ask (Fundraising)", "bullets": [], "source_refs": []}}
   ]
 }}
+
+RULES:
+- Return exactly these 12 titles in exactly this order, with at most 6 bullets each.
+- Every quantitative claim must be present in the supplied data.
+- Put supporting field paths or market URLs in source_refs; do not display them as bullets.
+- If evidence for a slide is missing, state the gap plainly instead of inventing content.
 
 ========================
 STARTUP DATA
@@ -98,11 +107,25 @@ MEMO
             body = s.placeholders[1].text_frame
             body.clear()
 
-            for bullet in slide["bullets"]:
-                p = body.add_paragraph()
+            bullets = slide["bullets"] or ["Evidence not available in source material."]
+            for index, bullet in enumerate(bullets):
+                # ``clear`` retains one paragraph; reuse it to avoid a blank
+                # bullet at the top of every generated slide.
+                p = body.paragraphs[0] if index == 0 else body.add_paragraph()
                 p.text = str(bullet)
                 p.level = 0
                 p.font.size = Pt(20)
+
+            if slide.get("source_refs"):
+                footer = s.shapes.add_textbox(
+                    Inches(0.5),
+                    Inches(7.0),
+                    Inches(9.0),
+                    Inches(0.3),
+                ).text_frame
+                footer.text = "Sources: " + " · ".join(slide["source_refs"][:3])
+                footer.paragraphs[0].font.size = Pt(8)
+                footer.paragraphs[0].font.color.rgb = RGBColor(100, 100, 100)
 
         prs.save(output_path)
         return output_path
@@ -120,19 +143,19 @@ MEMO
         }
 
         prompt = self._build_prompt(bundle)
-        raw = call_llm(prompt, model=self.model)
-
-        clean_json = self._clean_json(raw)
-
         try:
-            slides_json = json.loads(clean_json)
-        except Exception:
-            try:
-                start = raw.find("{")
-                end = raw.rfind("}") + 1
-                slides_json = json.loads(raw[start:end])
-            except Exception:
-                return {"error": "Could not parse JSON", "raw": raw}
+            slides_json = call_validated_json(
+                prompt,
+                PitchDeckOutput,
+                lambda current_prompt: call_llm(current_prompt, model=self.model),
+                attempts=2,
+            ).model_dump()
+        except StructuredOutputError as exc:
+            return {
+                "error": "Could not validate 12-slide deck JSON",
+                "raw": exc.last_response,
+                "validation_error": str(exc),
+            }
 
         # Generate PPTX
         pptx_path = self._create_pptx(slides_json)

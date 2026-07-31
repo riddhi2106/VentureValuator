@@ -41,6 +41,8 @@ This reduces hours of work into minutes, enabling founders to quickly test the v
 | **Sensitivity sandbox** | Interactive sliders to re-score each dimension and adjust LTV/CAC assumptions — live recalculation in the UI |
 | **Memory** | All runs are persisted locally; overview dashboard shows total analyses, latest score, and connection status |
 | **Cancellable pipeline** | Each stage shows real-time progress; the user can cancel mid-run |
+| **Validated agent contracts** | Every LLM-backed agent validates JSON against a typed Pydantic schema and retries malformed output once |
+| **Evidence traceability** | Market citations are verified against retrieved URLs; memo dimensions and generated slides retain source references |
 
 ---
 
@@ -57,6 +59,7 @@ VentureValuator/
 │
 ├── core/
 │   ├── orchestrator.py     # Sequential 6-step pipeline runner
+│   ├── config.py           # Typed Pydantic environment settings
 │   └── memory_manager.py   # Local run persistence
 │
 ├── agents/                 # One agent per pipeline stage
@@ -65,7 +68,8 @@ VentureValuator/
 │   ├── financial_agent.py  # Financial model & projections
 │   ├── skeptic_agent.py    # Sceptical VC challenge review
 │   ├── memo_agent.py       # Investor memo + weighted scoring
-│   └── deck_agent.py       # PowerPoint deck generation
+│   ├── deck_agent.py       # PowerPoint deck generation
+│   └── schemas.py          # Typed input/output contracts for LLM agents
 │
 ├── tools/
 │   ├── llm_client.py       # Unified ChatGPT client and auth fallbacks
@@ -73,6 +77,7 @@ VentureValuator/
 │   ├── web_search.py       # DuckDuckGo / Tavily search wrapper
 │   ├── mcp_client.py       # Client for local MCP finance server
 │   ├── finance_utils.py    # Financial helper utilities
+│   ├── structured_output.py # JSON extraction, validation, and bounded retries
 │   └── auth_status.py      # ChatGPT OAuth connection checker
 │
 ├── mcp_server.py           # Local MCP server (yfinance P/S ratios)
@@ -81,7 +86,6 @@ VentureValuator/
 ├── Dockerfile              # Non-root production container
 ├── pyproject.toml          # Project metadata and dependency/tool configuration
 ├── uv.lock                 # Reproducible dependency lock
-├── requirements.txt        # Streamlit Cloud compatibility export
 └── .env.example
 ```
 
@@ -164,20 +168,26 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-# LLM provider — "chatgpt_oauth" uses the local ChatGPT OAuth proxy
+APP_ENV=development
 LLM_PROVIDER=chatgpt_oauth
-CHATGPT_MODEL=gpt-4o
-
-# If using the ChatGPT OAuth proxy (login-with-chatgpt)
+CHATGPT_MODEL=gpt-5.6-sol
 OPENAI_OAUTH_PROXY_URL=http://127.0.0.1:10531/v1
+TEST_MODE=false
+DISABLE_WEB_SEARCH=false
 ```
+
+Configuration is validated once at process startup by the Pydantic settings model in
+`core/config.py`. Supported environments are `development`, `test`, `staging`, and
+`production`. Secret values such as `CHATGPT_TOKEN_JSON`, `OPENAI_API_KEY`, and
+`TAVILY_API_KEY` are represented as masked secret types and are only unwrapped at
+the external-service boundary.
 
 ### 3. Start the MCP finance server (optional but recommended)
 
 The MCP server provides live Price/Sales ratio comparables via Yahoo Finance.
 
 ```bash
-python mcp_server.py
+uv run python mcp_server.py
 ```
 
 > The server runs on stdio and is consumed automatically by the `MarketAgent`. You can leave it running in the background.
@@ -185,7 +195,7 @@ python mcp_server.py
 ### 4. Launch the app
 
 ```bash
-streamlit run app/ui.py
+uv run streamlit run app/ui.py
 ```
 
 Open [http://localhost:8501](http://localhost:8501) in your browser.
@@ -204,14 +214,15 @@ Run the same checks enforced by CI:
 
 ```bash
 uv run ruff check .
-TEST_MODE=true DISABLE_WEB_SEARCH=true uv run pytest -q --cov
+APP_ENV=test TEST_MODE=true DISABLE_WEB_SEARCH=true uv run pytest -q --cov
 uv run python -m compileall -q agents app core tools
 ```
 
-The Python suite covers deterministic financial calculations, evidence provenance,
-rubric-v2 scoring, targeted skeptic penalties, startup naming, pipeline state, and
-end-to-end orchestration with external agents mocked. Browser journeys remain under
-`tests/*.spec.ts`.
+The Python suite covers deterministic financial calculations, individual extraction,
+market, skeptic and deck transformations, typed configuration, evidence provenance,
+rubric-v2 scoring, targeted skeptic penalties, startup naming, pipeline state, and a
+full six-agent integration run with only network/file boundaries mocked. Browser
+journeys remain under `tests/*.spec.ts`.
 
 GitHub Actions runs linting, compilation, tests, and coverage on Python 3.12, 3.13,
 and 3.14, then verifies that the production Docker image builds.
@@ -245,7 +256,9 @@ VentureValuator supports two LLM backends, configurable via `LLM_PROVIDER` in `.
 
 ### Test / demo mode
 
-Set `TEST_MODE=true` in `.env` to run the UI without any live LLM calls. Agents return mock responses so you can explore the interface.
+Set `APP_ENV=test` and `TEST_MODE=true` only for local automated/demo runs without
+live LLM calls. Staging and production reject test mode at startup so uploaded
+companies can never be evaluated against the fixed mock dataset.
 
 ---
 
@@ -279,9 +292,9 @@ All runs are also persisted in the `memory/` directory for the history dashboard
 
 ## 📦 Dependencies
 
-`pyproject.toml` is the dependency and tooling source of truth. `uv.lock` pins the
-complete reproducible environment; `requirements.txt` is retained for Streamlit
-Community Cloud compatibility.
+`pyproject.toml` is the single dependency and tooling source of truth. Production and
+development dependencies are separated there, while `uv.lock` pins the complete,
+reproducible environment.
 
 | Package | Purpose |
 |---|---|
@@ -307,7 +320,7 @@ Community Cloud compatibility.
 4. Push and open a pull request
 
 Before opening a pull request, run `uv run ruff check .` and
-`TEST_MODE=true DISABLE_WEB_SEARCH=true uv run pytest -q --cov`. Please keep each
+`APP_ENV=test TEST_MODE=true DISABLE_WEB_SEARCH=true uv run pytest -q --cov`. Please keep each
 agent in its own file under `agents/` and use `tools/llm_client.py` as the single LLM
 dispatch point.
 

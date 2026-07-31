@@ -1,9 +1,26 @@
 import json
-import os
 from typing import Any, Dict
 
+from agents.schemas import MarketOutput
+from core.config import get_settings
 from tools.llm_client import call_llm
+from tools.structured_output import StructuredOutputError, call_validated_json
 from tools.web_search import search_for_startup
+
+COMPARABLE_RULES = (
+    (("health", "clinical", "pharma"), "VEEV", "vertical healthcare software"),
+    (("fintech", "payment", "banking"), "SQ", "digital payments and fintech"),
+    (("cybersecurity", "security"), "CRWD", "cloud cybersecurity"),
+    (("marketplace", "ecommerce", "commerce"), "AMZN", "digital commerce marketplace"),
+    (("data platform", "cloud data", "warehouse"), "SNOW", "cloud data platform"),
+    (("hardware", "device", "consumer electronics"), "AAPL", "technology hardware"),
+    (
+        ("artificial intelligence", "machine learning", "ai-powered", " ai "),
+        "NVDA",
+        "AI infrastructure",
+    ),
+    (("saas", "software"), "CRM", "horizontal SaaS"),
+)
 
 
 class MarketAgent:
@@ -13,6 +30,20 @@ class MarketAgent:
 
     def __init__(self, use_web_search: bool = True):
         self.use_web_search = use_web_search
+
+    def _select_public_comparable(self, extracted: Dict[str, Any]) -> tuple[str, str] | None:
+        """Select a transparent broad public comparable from startup keywords.
+
+        The comparable is contextual evidence, not a valuation recommendation.
+        Returning ``None`` is preferable to silently defaulting an unrelated
+        startup to a consumer-hardware company.
+        """
+
+        haystack = f" {str(extracted).lower()} "
+        for keywords, ticker, rationale in COMPARABLE_RULES:
+            if any(keyword in haystack for keyword in keywords):
+                return ticker, rationale
+        return None
 
     def _build_prompt(self, extracted: Dict[str, Any], web_results: str = "", mcp_comps: str = ""):
         return f"""
@@ -72,6 +103,8 @@ REQUIRED OUTPUT (JSON FORMAT ONLY)
 GUIDELINES:
 - Include at least 2 entries in "sources" when web research is available.
 - Do NOT invent precise market numbers without basis — use ranges if uncertain.
+- Distinguish startup-specific evidence from broad public-comparable context.
+- If a claim is unsupported, leave it blank or explicitly describe the uncertainty.
 - Keep JSON valid. Return ONLY the JSON object.
 """
 
@@ -88,7 +121,7 @@ GUIDELINES:
         web_sources = []
         mcp_comps = ""
 
-        use_search = self.use_web_search and os.getenv("DISABLE_WEB_SEARCH", "false").lower() not in ("true", "1")
+        use_search = self.use_web_search and not get_settings().disable_web_search
 
         if use_search:
             try:
@@ -99,49 +132,69 @@ GUIDELINES:
             except Exception as e:
                 web_results = f"Web search failed: {e}"
 
-        # Fetch live comps via MCP
+        comparable = self._select_public_comparable(extracted)
+        comparable_meta = None
         try:
             from tools.mcp_client import get_public_comps
-            # We'll do a quick check to see if we can find a related public tech company ticker
-            # For hackathon demo purposes, we will default to "SNOW" (Snowflake) if it's SaaS, or "AAPL" if hardware.
-            # Ideally this would be dynamically extracted.
-            biz = str(extracted.get("business_model", "")).lower()
-            ticker = "AAPL"
-            if "saas" in biz or "software" in biz:
-                ticker = "SNOW"
-            if "ai" in str(extracted.get("solution", "")).lower():
-                ticker = "NVDA"
-                
-            mcp_comps = get_public_comps(ticker)
+
+            if comparable:
+                ticker, rationale = comparable
+                comparable_data = get_public_comps(ticker)
+                mcp_comps = (
+                    f"Ticker: {ticker}\n"
+                    f"Selection rationale: {rationale}\n"
+                    f"Comparable data: {comparable_data}"
+                )
+                comparable_meta = {
+                    "ticker": ticker,
+                    "selection_rationale": rationale,
+                    "data": comparable_data,
+                }
+            else:
+                mcp_comps = "No sufficiently relevant public comparable selected."
         except Exception as e:
             mcp_comps = f"MCP comps failed: {e}"
 
         prompt = self._build_prompt(extracted, web_results, mcp_comps)
-        resp_text = call_llm(prompt)
-        clean_json = self._clean_json(resp_text)
-
         try:
-            data = json.loads(clean_json)
-        except Exception as e:
+            data = call_validated_json(
+                prompt,
+                MarketOutput,
+                call_llm,
+                attempts=2,
+            ).model_dump()
+        except StructuredOutputError as exc:
             return {
                 "error": "Failed to parse JSON",
-                "exception": str(e),
-                "raw_response": resp_text,
-                "cleaned_response": clean_json,
+                "exception": str(exc),
+                "raw_response": exc.last_response,
             }
 
-        # Merge web sources if LLM didn't include them
+        # Always reconcile the model's citations with sources actually returned
+        # by research. This prevents a plausible-looking invented URL from
+        # receiving the same confidence credit as a retrieved source.
         llm_sources = data.get("sources") or []
-        if web_sources and len(llm_sources) < 2:
-            existing_urls = {s.get("url") for s in llm_sources if s.get("url")}
+        researched_urls = {source.get("url") for source in web_sources if source.get("url")}
+        for source in llm_sources:
+            source["verified"] = bool(source.get("url") in researched_urls)
+        if web_sources:
+            existing_urls = {source.get("url") for source in llm_sources if source.get("url")}
             for src in web_sources:
                 if src.get("url") and src["url"] not in existing_urls:
                     llm_sources.append({
                         "title": src.get("title", ""),
                         "url": src.get("url", ""),
                         "snippet": src.get("snippet", ""),
+                        "verified": True,
                     })
             data["sources"] = llm_sources[:8]
 
         data["web_search_used"] = use_search and bool(web_sources)
+        data["source_validation"] = {
+            "researched_urls": len(researched_urls),
+            "verified_citations": sum(
+                1 for source in data.get("sources", []) if source.get("verified")
+            ),
+        }
+        data["public_comparable"] = comparable_meta
         return data

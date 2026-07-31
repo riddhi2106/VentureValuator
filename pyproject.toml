@@ -17,6 +17,8 @@ dependencies = [
     "openai>=2.45.0,<3",
     "pdfplumber>=0.11,<1",
     "plotly>=5.18,<7",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
     "python-dotenv>=1.0,<2",
     "python-pptx>=1.0,<2",
     "streamlit>=1.48,<2",
@@ -42,10 +44,6 @@ python_files = ["test_*.py"]
 branch = true
 source = ["agents", "app", "core", "tools"]
 omit = [
-    "agents/deck_agent.py",
-    "agents/extractor_agent.py",
-    "agents/market_agent.py",
-    "agents/skeptic_agent.py",
     "app/components.py",
     "app/pages/*",
     "app/styles.py",

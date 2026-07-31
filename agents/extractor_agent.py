@@ -2,9 +2,15 @@
 import json
 from typing import Optional
 
+from agents.schemas import ExtractionOutput
 from tools.llm_client import call_llm
 from tools.pdf_reader import pdf_reader
 from tools.startup_name import resolve_startup_name
+from tools.structured_output import (
+    StructuredOutputError,
+    call_validated_json,
+    extract_json_object,
+)
 
 # Slightly expanded prompt (keeps your original instructions but asks for extra numeric metrics)
 DEFAULT_PROMPT_TEMPLATE = """
@@ -23,6 +29,7 @@ produce a JSON object with the following exact keys (use these exact key names):
 - competition
 - notable_metrics
 - assumptions
+- evidence (object mapping each populated field to 1-3 short supporting fragments from the deck)
 
 Return ONLY valid JSON.  
 If you cannot find a value, set it to "" or [].
@@ -32,6 +39,9 @@ Never return "Unknown Startup", "Unknown", or a generic description.
 NOTE: In notable_metrics extract numeric metrics when present, including revenue, MAU,
 growth, retention, churn, gross margin, CAC, burn/monthly operating costs, NPS, repeat
 rate, orders, and delivery metrics. Never invent missing metrics or assumptions.
+Keep stated values exactly as written, including currency and time period. Put unsupported
+interpretations in assumptions, never in notable_metrics. Evidence fragments must be short
+and must come from the supplied text.
 
 Raw text to analyze:
 ---
@@ -48,28 +58,23 @@ class ExtractionAgent:
         self.llm_preference = llm_preference
 
     def _safe_parse_json(self, resp_text: str) -> dict:
-        """
-        Safely extract JSON even if the LLM returns markdown fences or surrounding text.
-        """
-        clean = resp_text.replace("```json", "").replace("```", "").strip()
-        start = clean.find("{")
-        end = clean.rfind("}") + 1
+        """Extract JSON from an LLM response for backward-compatible callers."""
 
-        if start == -1 or end == -1:
-            raise ValueError("No JSON object found in LLM response.")
-
-        return json.loads(clean[start:end])
+        return extract_json_object(resp_text)
 
     def extract_from_text(self, text: str, fallback_name: str | None = None) -> dict:
         prompt = DEFAULT_PROMPT_TEMPLATE.format(raw_text=text[:20000])
         print("[ExtractionAgent] Calling LLM...")
 
-        resp_text = call_llm(prompt)
-
-        # Parse JSON safely
         try:
-            data = self._safe_parse_json(resp_text)
-        except Exception:
+            validated = call_validated_json(
+                prompt,
+                ExtractionOutput,
+                call_llm,
+                attempts=2,
+            )
+            data = validated.model_dump()
+        except StructuredOutputError as exc:
             print("[ExtractionAgent] Failed to parse JSON. Returning fallback template.")
             return {
                 "name": resolve_startup_name(
@@ -83,12 +88,15 @@ class ExtractionAgent:
                 "business_model": "",
                 "pricing": "",
                 "gtm_strategy": "",
+                "team": "",
                 "cost_structure": "",
                 "competition": [],
                 "notable_metrics": {},
                 "assumptions": "",
+                "evidence": {},
                 "missing_info": [],
-                "raw_llm": resp_text
+                "raw_llm": exc.last_response,
+                "validation_error": str(exc),
             }
 
         # REQUIRED KEYS
@@ -97,41 +105,6 @@ class ExtractionAgent:
             "business_model", "pricing", "gtm_strategy",
             "team", "cost_structure", "competition", "notable_metrics", "assumptions"
         ]
-
-        # --- TYPE NORMALIZATION FIXES ----
-
-        # competition must be list
-        if isinstance(data.get("competition"), str):
-            data["competition"] = [data["competition"]] if data["competition"] else []
-        if data.get("competition") is None:
-            data["competition"] = []
-
-        # notable_metrics must be dict
-        if isinstance(data.get("notable_metrics"), str):
-            try:
-                data["notable_metrics"] = json.loads(data["notable_metrics"])
-            except Exception:
-                data["notable_metrics"] = {}
-        if data.get("notable_metrics") is None:
-            data["notable_metrics"] = {}
-
-        # --- Normalize notable_metrics if it's a LIST ---
-        if isinstance(data.get("notable_metrics"), list):
-            cleaned = {}
-            for item in data["notable_metrics"]:
-                # Parse "Key: Value" style strings
-                if isinstance(item, str) and ":" in item:
-                    key, val = item.split(":", 1)
-                    cleaned[key.strip()] = val.strip()
-                # If the list contains small dicts, merge them
-                elif isinstance(item, dict):
-                    for kk, vv in item.items():
-                        cleaned[str(kk).strip()] = vv
-            # If we parsed something, use it; else fallback to empty dict
-            data["notable_metrics"] = cleaned if cleaned else {}
-
-        if data.get("notable_metrics") is None:
-            data["notable_metrics"] = {}
 
         # === ADDED: attempt to canonicalize common metric keys and capture extra numeric fields ===
         # Do not remove any existing keys; only add normalized variants if missing.

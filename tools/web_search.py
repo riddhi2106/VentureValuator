@@ -1,5 +1,6 @@
-import os
 from typing import Any
+
+from core.config import get_settings
 
 
 def _search_duckduckgo(query: str, max_results: int = 5) -> list[dict[str, Any]]:
@@ -19,7 +20,7 @@ def _search_duckduckgo(query: str, max_results: int = 5) -> list[dict[str, Any]]
 def _search_tavily(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     import httpx
 
-    api_key = os.getenv("TAVILY_API_KEY")
+    api_key = get_settings().secret_value("tavily_api_key")
     if not api_key:
         return []
 
@@ -42,7 +43,7 @@ def _search_tavily(query: str, max_results: int = 5) -> list[dict[str, Any]]:
 
 def web_search(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     """Search the web. Uses Tavily if TAVILY_API_KEY is set, else DuckDuckGo."""
-    if os.getenv("TAVILY_API_KEY"):
+    if get_settings().tavily_api_key:
         try:
             results = _search_tavily(query, max_results=max_results)
             if results:

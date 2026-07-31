@@ -13,21 +13,23 @@ from typing import Any, Dict, List
 
 
 def monthly_growth_series(start: float, growth: float, months: int) -> List[float]:
+    """Project monthly revenue using compound growth.
+
+    ``start`` represents month one, so the first value is unchanged and the
+    formula for month ``i`` is ``start * (1 + growth) ** i``. Growth may be
+    negative, but values below ``-1`` are not meaningful for this model.
     """
-    Return a monthly revenue series:
-      revenue[i] = start * (1 + growth)^i
-    growth may be negative (contraction) or positive.
-    """
-    series = []
-    for i in range(months):
-        series.append(start * ((1 + growth) ** i))
-    return series
+
+    if months < 0:
+        raise ValueError("months must be non-negative")
+    if growth < -1:
+        raise ValueError("growth cannot be less than -100%")
+    return [start * ((1 + growth) ** month) for month in range(months)]
 
 
 def cumulative(values: List[float]) -> List[float]:
-    """
-    Return cumulative sum of a list.
-    """
+    """Return the running total used for cumulative net cash flow."""
+
     out = []
     total = 0.0
     for v in values:
@@ -36,14 +38,23 @@ def cumulative(values: List[float]) -> List[float]:
     return out
 
 
-def cac_ltv(cac: float, arpu_monthly: float, gross_margin: float, churn_monthly: float) -> Dict[str, Any]:
+def cac_ltv(
+    cac: float,
+    arpu_monthly: float,
+    gross_margin: float,
+    churn_monthly: float,
+) -> Dict[str, Any]:
+    """Estimate customer lifetime value and the LTV-to-CAC ratio.
+
+    This intentionally uses the transparent steady-state approximation
+    ``LTV = monthly ARPU * gross margin / monthly churn``. A 0.1% churn floor
+    prevents infinite lifetime values when a deck reports zero or omits churn.
+    The result should be treated as a directional diligence metric rather than
+    a cohort-based valuation.
     """
-    Compute:
-    - LTV = (ARPU_monthly * gross_margin) / churn_monthly     [simple formula]
-    - CAC:LTV ratio
-    """
+
     if churn_monthly <= 0:
-        churn_monthly = 0.001  # avoid divide-by-zero
+        churn_monthly = 0.001
 
     ltv = (arpu_monthly * gross_margin) / churn_monthly
     ratio = ltv / cac if cac else None
@@ -51,21 +62,25 @@ def cac_ltv(cac: float, arpu_monthly: float, gross_margin: float, churn_monthly:
     return {
         "ltv": ltv,
         "cac": cac,
-        "ltv_cac_ratio": ratio
+        "ltv_cac_ratio": ratio,
     }
 
 
 def monthly_to_annual(month_values: List[float]) -> float:
-    """
-    Convert a monthly list into an annual total.
-    """
+    """Aggregate up to twelve monthly values into an annual total."""
+
     return sum(month_values)
 
 
-def yearly_growth_projection(start_year_revenue: float, annual_growth: float, years: int = 5):
-    """
-    Creates a 5-year YoY revenue projection.
-    """
+def yearly_growth_projection(
+    start_year_revenue: float,
+    annual_growth: float,
+    years: int = 5,
+) -> List[float]:
+    """Project annual revenue using a constant year-over-year growth rate."""
+
+    if years < 0:
+        raise ValueError("years must be non-negative")
     projection = []
     current = start_year_revenue
 
@@ -76,24 +91,28 @@ def yearly_growth_projection(start_year_revenue: float, annual_growth: float, ye
     return projection
 
 
-def multi_year_financial_table(start_monthly_revenue: float,
-                               monthly_growth: float,
-                               months: int = 60):
-    """
-    Builds a 60-month (5-year) monthly revenue model.
-    We reuse monthly_growth_series to compute monthly numbers.
-    Then aggregate each 12-month chunk into annual totals.
-    """
-    monthly_values = monthly_growth_series(start_monthly_revenue,
-                                           monthly_growth,
-                                           months)
+def multi_year_financial_table(
+    start_monthly_revenue: float,
+    monthly_growth: float,
+    months: int = 60,
+) -> Dict[str, List[float]]:
+    """Return monthly projections and calendar-year revenue aggregates.
 
-    annual_values = []
-    for yr in range(5):
-        chunk = monthly_values[yr * 12:(yr + 1) * 12]
-        annual_values.append(sum(chunk))
+    Partial final years are included, which keeps the annual output consistent
+    when callers request a horizon other than the default 60 months.
+    """
+
+    monthly_values = monthly_growth_series(
+        start_monthly_revenue,
+        monthly_growth,
+        months,
+    )
+    annual_values = [
+        sum(monthly_values[start : start + 12])
+        for start in range(0, months, 12)
+    ]
 
     return {
         "monthly": monthly_values,
-        "annual": annual_values
+        "annual": annual_values,
     }

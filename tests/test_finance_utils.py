@@ -15,6 +15,15 @@ def test_monthly_growth_series_handles_growth_and_contraction():
     assert monthly_growth_series(100, -0.10, 3) == pytest.approx([100, 90, 81])
 
 
+def test_growth_projections_reject_invalid_horizons_and_rates():
+    with pytest.raises(ValueError, match="months"):
+        monthly_growth_series(100, 0.10, -1)
+    with pytest.raises(ValueError, match="100%"):
+        monthly_growth_series(100, -1.01, 12)
+    with pytest.raises(ValueError, match="years"):
+        yearly_growth_projection(1_000, 0.2, years=-1)
+
+
 def test_cumulative_and_annual_total():
     values = [100, -25, 50]
     assert cumulative(values) == pytest.approx([100, 75, 125])
@@ -39,3 +48,7 @@ def test_long_range_projections_have_expected_shape():
     assert len(table["monthly"]) == 60
     assert table["annual"] == pytest.approx([12_000] * 5)
 
+
+def test_multi_year_projection_includes_partial_final_year():
+    table = multi_year_financial_table(1_000, 0.0, months=14)
+    assert table["annual"] == pytest.approx([12_000, 2_000])

@@ -64,6 +64,12 @@ def test_evidence_driven_rubric_separates_weak_and_strong_startups():
     assert weak_result["rubric_version"] == 2
     assert strong_result["overall"]["score"] >= weak_result["overall"]["score"] + 4
     assert strong_result["overall"]["confidence"] > weak_result["overall"]["confidence"]
+    assert "extracted.notable_metrics.revenue_last_month" in strong_result["dimensions"][
+        "traction_metrics"
+    ]["evidence"]
+    assert "https://example.com/market" in strong_result["dimensions"]["market_timing"][
+        "evidence"
+    ]
 
 
 def test_skeptic_penalties_target_relevant_dimensions():
@@ -91,4 +97,3 @@ def test_skeptic_penalties_target_relevant_dimensions():
         < base_dimensions["unit_economics"]["score"]
     )
     assert penalized["overall"]["score"] < baseline["overall"]["score"]
-

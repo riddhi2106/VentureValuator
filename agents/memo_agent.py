@@ -1,15 +1,31 @@
-"""
-MemoAgent with weighted 6-dimension scoring rubric and LLM-generated insights.
+"""Evidence-weighted startup scoring and investor-memo generation.
+
+Six deterministic dimensions produce the numeric score. LLM output may enrich
+the written strengths and risks, but it cannot alter dimension scores, weights,
+confidence, or the final verdict. This separation keeps repeated evaluations
+consistent and makes every score traceable to extracted evidence.
 """
 
 import json
 import re
 import textwrap
 
+from agents.schemas import MemoInsights
 from tools.llm_client import call_llm
+from tools.structured_output import StructuredOutputError, call_validated_json
 
 MAX_BULLETS = 6
+MAX_DIMENSION_SCORE = 10.0
+DETAILED_SECTION_WORDS = 18
+DETAILED_GTM_WORDS = 15
+STRONG_DIMENSION_SCORE = 7.0
+RISK_DIMENSION_SCORE = 6.0
+MIN_CONFIDENCE = 0.30
+MAX_CONFIDENCE = 0.92
 
+# Weights reflect an early-stage investor lens: market, traction, and unit
+# economics carry 60% together, while qualitative clarity, moat, and team/GTM
+# provide the remaining 40%. They must continue to sum to 1.0.
 RUBRIC_WEIGHTS = {
     "problem_clarity": 0.15,
     "market_timing": 0.20,
@@ -21,6 +37,8 @@ RUBRIC_WEIGHTS = {
 
 
 def _extract_bullets(data, limit=MAX_BULLETS):
+    """Normalize a list or prose block into a bounded list of memo bullets."""
+
     if not data:
         return []
     if isinstance(data, list):
@@ -31,6 +49,8 @@ def _extract_bullets(data, limit=MAX_BULLETS):
 
 
 def _compact(s, n=300):
+    """Collapse whitespace and truncate free-form evidence for memo display."""
+
     if not s:
         return ""
     if isinstance(s, list):
@@ -44,6 +64,8 @@ def _compact(s, n=300):
 
 
 def _has_content(val) -> bool:
+    """Return whether a scalar or collection contains usable deck evidence."""
+
     if not val:
         return False
     if isinstance(val, (list, dict)):
@@ -52,10 +74,19 @@ def _has_content(val) -> bool:
 
 
 def _get_metrics(extracted: dict) -> dict:
+    """Return the normalized metrics mapping, tolerating missing extraction data."""
+
     return extracted.get("notable_metrics") or {}
 
 
 def _numeric(value) -> float | None:
+    """Extract a comparable number while applying common magnitude suffixes.
+
+    Percent signs and currency symbols do not change the numeric value. The
+    caller decides whether the result represents dollars, users, or percentage
+    points based on the source field.
+    """
+
     if value in (None, "", []):
         return None
     text = str(value).lower().replace(",", "")
@@ -75,6 +106,12 @@ def _numeric(value) -> float | None:
 
 
 def _content_depth(value) -> int:
+    """Count evidence words across strings or bullet lists.
+
+    Word count is a deliberately simple proxy for specificity. It does not judge
+    writing quality; it only distinguishes a terse label from an explained claim.
+    """
+
     if not _has_content(value):
         return 0
     if isinstance(value, list):
@@ -83,33 +120,60 @@ def _content_depth(value) -> int:
 
 
 def _score_problem_clarity(extracted: dict) -> tuple[float, str]:
+    """Score how specifically the deck defines its problem, solution, and buyer.
+
+    Returns:
+        A capped 0–10 score and an evidence-based rationale. Eighteen words is
+        treated as detailed enough to earn full problem/solution evidence credit.
+    """
+
+    # A small baseline acknowledges that extraction completed while ensuring a
+    # deck with no useful content remains firmly in the low-score range.
     score = 1.5
     notes = []
     problem = extracted.get("problem")
     solution = extracted.get("solution")
     if _has_content(problem):
         depth = _content_depth(problem)
-        score += 2.0 if depth >= 18 else 1.0
-        notes.append("Problem is specific" if depth >= 18 else "Problem is stated but thin")
+        score += 2.0 if depth >= DETAILED_SECTION_WORDS else 1.0
+        notes.append(
+            "Problem is specific"
+            if depth >= DETAILED_SECTION_WORDS
+            else "Problem is stated but thin"
+        )
     else:
         notes.append("Problem evidence missing")
     if _has_content(solution):
         depth = _content_depth(solution)
-        score += 2.0 if depth >= 18 else 1.0
-        notes.append("Solution is well described" if depth >= 18 else "Solution detail is limited")
+        score += 2.0 if depth >= DETAILED_SECTION_WORDS else 1.0
+        notes.append(
+            "Solution is well described"
+            if depth >= DETAILED_SECTION_WORDS
+            else "Solution detail is limited"
+        )
     if _has_content(extracted.get("target_customer")):
         score += 1.5
         notes.append("Target customer identified")
     if _has_content(extracted.get("pricing")):
         score += 1.0
         notes.append("Customer value is tied to pricing")
-    return min(10.0, score), "; ".join(notes)
+    return min(MAX_DIMENSION_SCORE, score), "; ".join(notes)
 
 
 def _score_market_timing(market: dict) -> tuple[float, str]:
+    """Score quantified market scope, growth, trends, and source quality.
+
+    Two independent source URLs earn full sourcing credit. Growth bands use 5%
+    as meaningful expansion and 15% as a high-growth market threshold.
+    """
+
     score = 1.5
     notes = []
-    sources = [s for s in (market.get("sources") or []) if s.get("url")]
+    sources = [
+        source
+        for source in (market.get("sources") or [])
+        if source.get("url") and source.get("verified", True)
+    ]
     tam = _numeric(market.get("tam"))
     sam = _numeric(market.get("sam"))
     growth = _numeric(market.get("market_growth_rate"))
@@ -133,10 +197,17 @@ def _score_market_timing(market: dict) -> tuple[float, str]:
         notes.append("Limited source support")
     else:
         notes.append("Market claims are not source-backed")
-    return min(10.0, score), "; ".join(notes)
+    return min(MAX_DIMENSION_SCORE, score), "; ".join(notes)
 
 
 def _score_traction(extracted: dict) -> tuple[float, str]:
+    """Score revenue, usage, growth, and the breadth of evidenced metrics.
+
+    Revenue and active-user bands are intentionally coarse because decks may use
+    different currencies and business models. The rubric rewards presence and
+    materiality of evidence, not false valuation precision.
+    """
+
     score = 1.0
     notes = []
     metrics = _get_metrics(extracted)
@@ -161,10 +232,17 @@ def _score_traction(extracted: dict) -> tuple[float, str]:
         notes.append("Rich metrics package")
     if not notes:
         notes.append("No quantified traction in the deck")
-    return min(10.0, score), "; ".join(notes)
+    return min(MAX_DIMENSION_SCORE, score), "; ".join(notes)
 
 
 def _score_unit_economics(financial: dict) -> tuple[float, str]:
+    """Score unit economics while discounting values based on assumptions.
+
+    Attractive modeled ratios only earn material credit when CAC and ARPU are
+    deck-sourced or derived from deck evidence. This prevents assumed defaults
+    from inflating otherwise sparse startup evaluations.
+    """
+
     score = 1.5
     notes = []
     summary = financial.get("summary", {})
@@ -189,10 +267,20 @@ def _score_unit_economics(financial: dict) -> tuple[float, str]:
     if ratio and sources.get("cac") != "assumption" and sources.get("arpu_monthly") != "assumption":
         score += 2.0 if ratio >= 3 else (1.0 if ratio >= 1 else 0.25)
         notes.append(f"LTV/CAC modeled at {ratio:.1f}x from available evidence")
-    return min(10.0, score), "; ".join(notes) if notes else "Unit economics not fully evidenced"
+    return (
+        min(MAX_DIMENSION_SCORE, score),
+        "; ".join(notes) if notes else "Unit economics not fully evidenced",
+    )
 
 
 def _score_competitive_moat(extracted: dict, market: dict) -> tuple[float, str]:
+    """Score mapped competitors, defensible advantages, and competitive risks.
+
+    Identifying competitors earns less credit than deck-backed differentiation.
+    Multiple material risks subtract a small amount rather than erasing the
+    positive evidence already captured.
+    """
+
     score = 1.5
     notes = []
     landscape = market.get("competitive_landscape") or {}
@@ -206,21 +294,38 @@ def _score_competitive_moat(extracted: dict, market: dict) -> tuple[float, str]:
     if competitors or deck_competition:
         score += 1.5 if deck_competition else 0.75
         notes.append("Competitive landscape mapped")
-    if len(advantages) >= 2 and _content_depth(extracted.get("solution")) >= 18:
+    if (
+        len(advantages) >= 2
+        and _content_depth(extracted.get("solution")) >= DETAILED_SECTION_WORDS
+    ):
         score += 1.25
         notes.append("Differentiation has supporting product detail")
     risks = landscape.get("competitive_risks") or []
     if len(risks) >= 2:
         score -= 0.5
         notes.append("Material competitive risks remain")
-    return min(10.0, score), "; ".join(notes) if notes else "Weak competitive positioning evidence"
+    return (
+        min(MAX_DIMENSION_SCORE, score),
+        "; ".join(notes) if notes else "Weak competitive positioning evidence",
+    )
 
 
 def _score_gtm_team(extracted: dict) -> tuple[float, str]:
+    """Score go-to-market specificity, monetization, pricing, and team evidence.
+
+    Fifteen words distinguishes an outlined GTM/team claim from a name-only
+    mention. Pricing and business-model evidence receive separate credit because
+    route to market and monetization answer different diligence questions.
+    """
+
     score = 1.0
     notes = []
     if _has_content(extracted.get("gtm_strategy")):
-        score += 2.5 if _content_depth(extracted.get("gtm_strategy")) >= 15 else 1.5
+        score += (
+            2.5
+            if _content_depth(extracted.get("gtm_strategy")) >= DETAILED_GTM_WORDS
+            else 1.5
+        )
         notes.append("GTM strategy outlined")
     if _has_content(extracted.get("business_model")):
         score += 1.5
@@ -229,14 +334,26 @@ def _score_gtm_team(extracted: dict) -> tuple[float, str]:
         score += 1.0
         notes.append("Pricing defined")
     if _has_content(extracted.get("team")):
-        score += 2.5 if _content_depth(extracted.get("team")) >= 15 else 1.25
+        score += (
+            2.5 if _content_depth(extracted.get("team")) >= DETAILED_GTM_WORDS else 1.25
+        )
         notes.append("Team experience provided")
     else:
         notes.append("Team evidence missing")
-    return min(10.0, score), "; ".join(notes) if notes else "GTM/team details sparse"
+    return (
+        min(MAX_DIMENSION_SCORE, score),
+        "; ".join(notes) if notes else "GTM/team details sparse",
+    )
 
 
 def _apply_skeptic_penalty(dimensions: dict, skeptic: dict) -> dict:
+    """Apply bounded, dimension-specific deductions from skeptical review findings.
+
+    Every flag produces a small general evidence penalty. Keyword matches add a
+    targeted deduction to the dimensions implicated by the concern, capped to
+    prevent the unstructured review from overwhelming the deterministic rubric.
+    """
+
     if not skeptic or skeptic.get("error"):
         return dimensions
 
@@ -265,6 +382,12 @@ def _apply_skeptic_penalty(dimensions: dict, skeptic: dict) -> dict:
 
 
 def _verdict_from_score(score: float) -> str:
+    """Map the weighted score to stable investment recommendation bands.
+
+    ``Invest`` begins at 7.5, ``Pass`` at 6.0, and ``Neutral`` at 5.0. Despite
+    its label, ``Pass`` means pass the company onward for diligence, not reject it.
+    """
+
     if score >= 7.5:
         return "Invest"
     if score >= 6.0:
@@ -275,14 +398,28 @@ def _verdict_from_score(score: float) -> str:
 
 
 def _evidence_confidence(extracted, market, financial, skeptic) -> float:
+    """Estimate confidence from field completeness, citations, and provenance.
+
+    Confidence starts at 25%, earns bounded credit for six core deck fields,
+    reported metrics, market citations, and deck-sourced financial inputs, then
+    loses credit for explicitly missing diligence data. The final 30–92% clamp
+    avoids claiming either zero knowledge or certainty from an automated review.
+    """
+
     metrics = _get_metrics(extracted)
-    sources = [s for s in (market.get("sources") or []) if s.get("url")]
+    sources = [
+        source
+        for source in (market.get("sources") or [])
+        if source.get("url") and source.get("verified", True)
+    ]
     input_sources = financial.get("summary", {}).get("input_sources") or {}
     deck_financials = sum(1 for source in input_sources.values() if source == "deck")
     core_fields = ("problem", "solution", "target_customer", "business_model", "gtm_strategy", "team")
     filled_fields = sum(1 for field in core_fields if _has_content(extracted.get(field)))
     missing = len((skeptic or {}).get("missing_data") or [])
 
+    # Confidence is deliberately separate from startup quality: a weak startup
+    # can still receive a high-confidence evaluation when the evidence is rich.
     confidence = (
         0.25
         + min(0.18, filled_fields * 0.03)
@@ -291,10 +428,16 @@ def _evidence_confidence(extracted, market, financial, skeptic) -> float:
         + min(0.15, deck_financials * 0.05)
         - min(0.18, missing * 0.03)
     )
-    return round(max(0.30, min(0.92, confidence)), 2)
+    return round(max(MIN_CONFIDENCE, min(MAX_CONFIDENCE, confidence)), 2)
 
 
 def _llm_insights(extracted, market, financial, skeptic, dimensions) -> dict:
+    """Generate narrative strengths/risks without modifying deterministic scores.
+
+    Malformed or unavailable LLM output returns an empty mapping; ``evaluate``
+    then derives stable fallback text directly from dimension rationales.
+    """
+
     prompt = f"""
 You are a VC analyst writing the evaluation section of an investment memo.
 
@@ -314,17 +457,69 @@ SKEPTIC REVIEW: {json.dumps(skeptic, indent=2)[:2000]}
 DIMENSION SCORES: {json.dumps({k: v["score"] for k, v in dimensions.items() if not k.startswith("_")}, indent=2)}
 """
     try:
-        resp = call_llm(prompt)
-        clean = resp.replace("```json", "").replace("```", "").strip()
-        start, end = clean.find("{"), clean.rfind("}") + 1
-        if start != -1 and end > start:
-            return json.loads(clean[start:end])
-    except Exception:
-        pass
-    return {}
+        return call_validated_json(
+            prompt,
+            MemoInsights,
+            call_llm,
+            attempts=2,
+        ).model_dump()
+    except StructuredOutputError:
+        return {}
+
+
+def _dimension_evidence(extracted, market, financial) -> dict[str, list[str]]:
+    """Build field-path evidence references for each deterministic dimension."""
+
+    metrics = _get_metrics(extracted)
+    market_sources = [
+        source.get("url")
+        for source in (market.get("sources") or [])
+        if source.get("url") and source.get("verified", True)
+    ][:3]
+    input_sources = financial.get("summary", {}).get("input_sources") or {}
+
+    def present(prefix: str, mapping: dict, keys: tuple[str, ...]) -> list[str]:
+        return [f"{prefix}.{key}" for key in keys if _has_content(mapping.get(key))]
+
+    return {
+        "problem_clarity": present(
+            "extracted",
+            extracted,
+            ("problem", "solution", "target_customer", "pricing"),
+        ),
+        "market_timing": present(
+            "market",
+            market,
+            ("tam", "sam", "market_growth_rate", "key_trends"),
+        )
+        + market_sources,
+        "traction_metrics": [
+            f"extracted.notable_metrics.{key}"
+            for key in ("revenue_last_month", "mau", "mom_growth")
+            if _has_content(metrics.get(key))
+        ],
+        "unit_economics": [
+            f"financial.summary.input_sources.{key}={source}"
+            for key, source in input_sources.items()
+            if key in {"revenue_monthly", "gross_margin", "cac", "arpu_monthly"}
+        ],
+        "competitive_moat": present("extracted", extracted, ("competition", "solution"))
+        + present("market.competitive_landscape", market.get("competitive_landscape") or {}, (
+            "direct_competitors",
+            "competitive_advantages",
+            "competitive_risks",
+        )),
+        "gtm_team": present(
+            "extracted",
+            extracted,
+            ("gtm_strategy", "business_model", "pricing", "team"),
+        ),
+    }
 
 
 def _memo_text(title, extraction, market, financial_bullets, evaluation, skeptic=None):
+    """Render the structured memo as a readable plain-text download."""
+
     lines = [title, "=" * len(title)]
 
     if extraction.get("one_liner"):
@@ -384,10 +579,27 @@ def _memo_text(title, extraction, market, financial_bullets, evaluation, skeptic
 
 
 class MemoAgent:
+    """Create an investor memo using a deterministic, evidence-weighted rubric."""
+
     def __init__(self, use_llm: bool = True):
+        """Configure whether narrative insights may be enriched by an LLM."""
+
         self.use_llm = use_llm
 
     def evaluate(self, extracted, market, financial, skeptic=None) -> dict:
+        """Evaluate one startup using rubric version 2.
+
+        Args:
+            extracted: Normalized pitch-deck fields and notable metrics.
+            market: Market research, competitive landscape, and citations.
+            financial: Deterministic ``FinancialAgent`` output with provenance.
+            skeptic: Optional red flags and missing-data findings.
+
+        Returns:
+            A JSON-serializable scorecard with six dimensions, weighted overall
+            score, verdict, confidence, strengths, and risks.
+        """
+
         scorers = {
             "problem_clarity": _score_problem_clarity(extracted),
             "market_timing": _score_market_timing(market),
@@ -396,13 +608,20 @@ class MemoAgent:
             "competitive_moat": _score_competitive_moat(extracted, market),
             "gtm_team": _score_gtm_team(extracted),
         }
+        evidence = _dimension_evidence(extracted, market, financial)
 
         dimensions = {
-            key: {"score": score, "weight": RUBRIC_WEIGHTS[key], "rationale": rationale}
+            key: {
+                "score": score,
+                "weight": RUBRIC_WEIGHTS[key],
+                "rationale": rationale,
+                "evidence": evidence[key],
+            }
             for key, (score, rationale) in scorers.items()
         }
         dimensions = _apply_skeptic_penalty(dimensions, skeptic or {})
 
+        # Rubric weights sum to 1.0, keeping the weighted result on a 0–10 scale.
         overall_score = sum(
             d["score"] * d["weight"]
             for k, d in dimensions.items()
@@ -422,13 +641,23 @@ class MemoAgent:
             strengths = insights.get("strengths") or []
             risks = insights.get("risks") or []
 
+        # Narrative fallback keeps evaluation useful in offline/test mode and
+        # ensures an LLM outage cannot remove the deterministic score rationale.
         if not strengths:
-            strengths = [d["rationale"] for k, d in dimensions.items() if not k.startswith("_") and d["score"] >= 7][:4]
+            strengths = [
+                d["rationale"]
+                for k, d in dimensions.items()
+                if not k.startswith("_") and d["score"] >= STRONG_DIMENSION_SCORE
+            ][:4]
         if not risks:
             if skeptic:
                 risks = (skeptic.get("red_flags") or [])[:4]
             if not risks:
-                risks = [d["rationale"] for k, d in dimensions.items() if not k.startswith("_") and d["score"] < 6][:4]
+                risks = [
+                    d["rationale"]
+                    for k, d in dimensions.items()
+                    if not k.startswith("_") and d["score"] < RISK_DIMENSION_SCORE
+                ][:4]
 
         return {
             "rubric_version": 2,
@@ -443,6 +672,12 @@ class MemoAgent:
         }
 
     def run(self, extracted, market, financial, skeptic=None, explain=False):
+        """Build structured and plain-text memo representations for the UI.
+
+        ``explain`` is accepted for API compatibility with earlier releases; the
+        deterministic evaluation path is always included in the output.
+        """
+
         extraction = {
             "name": extracted.get("name") or extracted.get("company_name") or "Startup",
             "one_liner": _compact(extracted.get("solution") or extracted.get("problem") or "", 200),

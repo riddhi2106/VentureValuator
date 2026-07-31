@@ -1,6 +1,5 @@
 """Connection Settings for VentureValuator."""
 
-import os
 import time
 
 import streamlit as st
@@ -9,6 +8,7 @@ from login_with_chatgpt.auth.device import poll_device_code, request_device_code
 from login_with_chatgpt.auth.oauth import exchange_authorization_code
 
 from app.components import connection_html, get_auth, setup_page
+from core.config import get_settings
 from tools.auth_status import AuthStatus
 
 setup_page("Login / Connection", "Manage your ChatGPT connection for running analyses.")
@@ -124,7 +124,7 @@ else:
                                 st.session_state.auth_status = AuthStatus(
                                     authenticated=True,
                                     method="session",
-                                    model=os.getenv("CHATGPT_MODEL", "gpt-5.6-sol"),
+                                    model=get_settings().chatgpt_model,
                                 )
                                 st.success("Connected successfully!")
                                 time.sleep(1.0)

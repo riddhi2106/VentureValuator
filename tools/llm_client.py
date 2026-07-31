@@ -1,13 +1,10 @@
-import os
 import threading
 
-from dotenv import load_dotenv
-
-load_dotenv()
+from core.config import get_settings
 
 
 def _is_test_mode() -> bool:
-    return os.getenv("TEST_MODE", "false").lower() in ("true", "1", "yes")
+    return get_settings().test_mode
 
 
 def _mock_response(prompt: str) -> str:
@@ -192,7 +189,7 @@ def _make_client_from_env_token(model: str):
     bootstrap the library with MemoryTokenStore so the OS keyring is never touched.
     Returns an openai.OpenAI client or raises if the env var is absent/invalid.
     """
-    token_json = os.getenv("CHATGPT_TOKEN_JSON", "").strip()
+    token_json = get_settings().secret_value("chatgpt_token_json")
     if not token_json:
         raise ValueError("CHATGPT_TOKEN_JSON not set")
 
@@ -220,7 +217,8 @@ def call_llm(prompt: str, model: str | None = None) -> str:
     if _is_test_mode():
         return _mock_response(prompt)
 
-    model = model or os.getenv("CHATGPT_MODEL", "gpt-5.6-sol")
+    settings = get_settings()
+    model = model or settings.chatgpt_model
 
     # 1. Highest priority: User session token (web-based login for visitors)
     try:
@@ -256,7 +254,7 @@ def call_llm(prompt: str, model: str | None = None) -> str:
         pass
 
     # 3. Local proxy fallback
-    proxy_url = os.getenv("OPENAI_OAUTH_PROXY_URL", "http://127.0.0.1:10531/v1")
+    proxy_url = settings.openai_oauth_proxy_url
     try:
         from openai import OpenAI as StdOpenAI
 
